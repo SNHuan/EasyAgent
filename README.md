@@ -26,41 +26,51 @@ pip install -r requirements.txt
 ## 架构设计
 
 ```mermaid
-graph TB
-    subgraph Agent Layer
-        BA[BaseAgent<br/>model + memory + history]
-        TA[ToolAgent<br/>+ tool management]
-        RA[ReactAgent<br/>think → act → observe]
-        BA --> TA --> RA
+flowchart TB
+    subgraph UserLayer["👤 User"]
+        Input["Input / Output"]
     end
 
-    subgraph Model Layer
-        BL[BaseLLM<br/>abstract interface]
-        LM[LiteLLMModel<br/>LiteLLM implementation]
-        SC[Schema<br/>Message / ToolCall / LLMResponse]
-        BL --> LM
+    subgraph AgentLayer["🤖 Agent Layer"]
+        direction TB
+        RA["ReactAgent<br/><i>ReAct Loop</i>"]
+        TA["ToolAgent<br/><i>Tool Execution</i>"]
+        BA["BaseAgent<br/><i>Model + Memory + History</i>"]
+        RA --> TA --> BA
     end
 
-    subgraph Memory Layer
-        BM[BaseMemory<br/>abstract interface]
-        SW[SlidingWindowMemory<br/>message + token truncation]
-        SM[SummaryMemory<br/>auto summarization]
-        BM --> SW
-        BM --> SM
+    subgraph InfraLayer["⚙️ Infrastructure Layer"]
+        direction LR
+        subgraph ModelMod["Model"]
+            LLM["LiteLLMModel<br/><i>OpenAI / Claude / Gemini</i>"]
+        end
+        subgraph MemoryMod["Memory"]
+            MEM["SlidingWindow | Summary<br/><i>Context Management</i>"]
+        end
+        subgraph ToolMod["Tool"]
+            TM["ToolManager<br/><i>Registry + Execution</i>"]
+        end
     end
 
-    subgraph Tool Layer
-        TP[Tool Protocol<br/>name / description / execute]
-        TM[ToolManager<br/>registry + execution]
-        RT[register_tool decorator]
-        TP --> TM
-        RT --> TM
+    subgraph SchemaLayer["📦 Schema Layer"]
+        direction LR
+        MSG["Message"]
+        TC["ToolCall"]
+        RESP["LLMResponse"]
     end
 
-    RA --> LM
+    Input <--> RA
+    BA --> MEM
+    RA --> LLM
     RA --> TM
-    BA --> BM
-    LM --> SC
+    LLM --> MSG
+    LLM --> RESP
+    TM --> TC
+
+    style UserLayer fill:#e1f5fe
+    style AgentLayer fill:#fff3e0
+    style InfraLayer fill:#f3e5f5
+    style SchemaLayer fill:#e8f5e9
 ```
 
 ### 核心流程
