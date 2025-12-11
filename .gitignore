@@ -4,4 +4,4 @@
 __pycache__/
 *.py[cod]
 
-config/config.yaml
+/config/config.yaml
