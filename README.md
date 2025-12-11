@@ -2,6 +2,79 @@
 
 轻量级 AI Agent 框架，基于 LiteLLM 构建，支持多模型、工具调用和智能记忆管理。
 
+## 架构设计
+
+```mermaid
+graph TB
+    subgraph Agent Layer
+        BA[BaseAgent<br/>model + memory + history]
+        TA[ToolAgent<br/>+ tool management]
+        RA[ReactAgent<br/>think → act → observe]
+        BA --> TA --> RA
+    end
+
+    subgraph Model Layer
+        BL[BaseLLM<br/>abstract interface]
+        LM[LiteLLMModel<br/>LiteLLM implementation]
+        SC[Schema<br/>Message / ToolCall / LLMResponse]
+        BL --> LM
+    end
+
+    subgraph Memory Layer
+        BM[BaseMemory<br/>abstract interface]
+        SW[SlidingWindowMemory<br/>message + token truncation]
+        SM[SummaryMemory<br/>auto summarization]
+        BM --> SW
+        BM --> SM
+    end
+
+    subgraph Tool Layer
+        TP[Tool Protocol<br/>name / description / execute]
+        TM[ToolManager<br/>registry + execution]
+        RT[@register_tool<br/>decorator]
+        TP --> TM
+        RT --> TM
+    end
+
+    RA --> LM
+    RA --> TM
+    BA --> BM
+    LM --> SC
+```
+
+### 核心流程
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant A as ReactAgent
+    participant M as LiteLLMModel
+    participant T as ToolManager
+    participant Mem as Memory
+
+    U->>A: run(user_input)
+    A->>Mem: add(user_message)
+
+    loop ReAct Loop (max_iterations)
+        A->>Mem: get_messages()
+        Mem-->>A: history
+        A->>M: call_with_history(messages, tools)
+        M-->>A: LLMResponse
+
+        alt No Tool Calls
+            A->>Mem: add(assistant_message)
+            A-->>U: final_answer
+        else Has Tool Calls
+            A->>Mem: add(assistant_message)
+            loop Each Tool Call
+                A->>T: execute(name, args)
+                T-->>A: result
+                A->>Mem: add(tool_result)
+            end
+        end
+    end
+```
+
 ## 项目结构
 
 ```
@@ -9,46 +82,27 @@ terminal_bench/
 ├── agent/                  # Agent 层
 │   ├── base.py             # BaseAgent 抽象基类
 │   ├── tool_agent.py       # ToolAgent（支持工具调用）
-│   └── react_agent.py      # ReactAgent（ReAct 循环实现）
+│   └── react_agent.py      # ReactAgent（ReAct 循环）
 ├── model/                  # 模型层
 │   ├── base.py             # BaseLLM 抽象基类
 │   ├── litellm_model.py    # LiteLLM 实现
 │   └── schema.py           # Message, ToolCall, LLMResponse
 ├── memory/                 # 记忆层
 │   ├── base.py             # BaseMemory 抽象基类
-│   ├── sliding_window.py   # 滑动窗口（消息数/token 截断）
-│   └── summary.py          # Summary（自动摘要压缩）
+│   ├── sliding_window.py   # 滑动窗口策略
+│   └── summary.py          # 自动摘要策略
 ├── tool/                   # 工具层
 │   ├── base.py             # Tool Protocol
 │   └── manager.py          # ToolManager + @register_tool
 ├── prompt/                 # 提示词模板
-│   └── memory.py           # Summary 相关提示词
 ├── config/                 # 配置管理
-│   ├── base.py             # AppConfig, ModelConfig
-│   └── config.yaml         # 配置文件
-├── log.py                  # 日志工具
+├── debug/                  # 调试工具
 └── test/                   # 测试
-```
-
-## 架构设计
-
-```
-BaseAgent (model + memory + history)
-    ↓
-ToolAgent (+ 工具管理)
-    ↓
-ReactAgent (ReAct 循环: think → act → observe)
 ```
 
 ## 快速开始
 
-### 1. 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. 配置模型
+### 1. 配置模型
 
 编辑 `config/config.yaml`：
 
@@ -63,7 +117,7 @@ models:
     api_key: sk-xxx
 ```
 
-### 3. 定义工具
+### 2. 定义工具
 
 ```python
 from tool import register_tool
@@ -83,10 +137,10 @@ class GetWeather:
         pass
 
     def execute(self, city: str) -> str:
-        return f"The weather in {city} is sunny, 25°C."
+        return f"The weather in {city} is sunny."
 ```
 
-### 4. 创建 Agent
+### 3. 创建 Agent
 
 ```python
 import asyncio
@@ -104,47 +158,24 @@ agent = ReactAgent(
 )
 
 result = asyncio.run(agent.run("What's the weather in Beijing?"))
-print(result)
 ```
 
-## 记忆管理
+## 记忆策略
 
-### 滑动窗口
+| 策略 | 适用场景 | 特点 |
+|------|---------|------|
+| `SlidingWindowMemory` | 短对话 | 按消息数/token 截断 |
+| `SummaryMemory` | 长对话 | 自动摘要压缩，保证不超 max_tokens |
 
 ```python
-from memory import SlidingWindowMemory
+from memory import SlidingWindowMemory, SummaryMemory
 
-memory = SlidingWindowMemory(
-    max_messages=20,      # 最多保留 20 条消息
-    max_tokens=4000,      # 最多 4000 tokens
-)
+# 滑动窗口
+memory = SlidingWindowMemory(max_messages=20, max_tokens=4000)
+
+# 自动摘要（max_tokens 自动从 litellm 获取）
+memory = SummaryMemory(task_id="task_001", reserve_ratio=0.3)
 ```
-
-### Summary 自动摘要
-
-```python
-from memory import SummaryMemory
-
-memory = SummaryMemory(
-    task_id="task_001",   # 任务 ID，用于存储摘要文件
-    reserve_ratio=0.3,    # 保留 30% token 给最近消息
-)
-# max_tokens 自动从 litellm 获取模型上限
-# 摘要文件保存在 workspace/task_001/summary.md
-```
-
-## Debug 模式
-
-在 `config/config.yaml` 中设置：
-
-```yaml
-debug: true
-```
-
-开启后会显示：
-- LLM 请求/响应详情
-- 工具调用和返回结果
-- Token 使用和费用统计
 
 ## 运行测试
 
