@@ -4,7 +4,7 @@ from typing import Any
 import litellm
 
 from config.base import is_debug
-from log import Color, Logger
+from debug.log import Color, Logger
 from model.base import BaseLLM
 from model.schema import LLMResponse, ToolCall
 

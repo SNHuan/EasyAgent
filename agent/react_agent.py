@@ -1,7 +1,7 @@
 from typing import Any
 
 from agent.tool_agent import ToolAgent
-from log import Color
+from debug.log import Color
 from memory.base import BaseMemory
 from model.base import BaseLLM
 from model.schema import Message

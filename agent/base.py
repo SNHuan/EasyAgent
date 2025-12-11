@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from config.base import is_debug
-from log import Logger
+from debug.log import Logger
 from memory.base import BaseMemory
 from memory.sliding_window import SlidingWindowMemory
 from model.base import BaseLLM
