@@ -15,63 +15,69 @@
 
 ## 安装
 
+**开发模式安装（推荐）：**
+
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/pyr-sh/terminal-bench.git
+cd terminal-bench
+pip install -e .
 ```
 
-**依赖：**
+**安装开发依赖：**
+
+```bash
+pip install -e ".[dev]"
+```
+
+**核心依赖：**
 - `litellm>=1.80.0`
 - `pydantic>=2.12.5`
 
 ## 架构设计
 
-```mermaid
-flowchart TB
-    subgraph UserLayer["👤 User"]
-        Input["Input / Output"]
-    end
-
-    subgraph AgentLayer["🤖 Agent Layer"]
-        direction TB
-        RA["ReactAgent<br/><i>ReAct Loop</i>"]
-        TA["ToolAgent<br/><i>Tool Execution</i>"]
-        BA["BaseAgent<br/><i>Model + Memory + History</i>"]
-        RA --> TA --> BA
-    end
-
-    subgraph InfraLayer["⚙️ Infrastructure Layer"]
-        direction LR
-        subgraph ModelMod["Model"]
-            LLM["LiteLLMModel<br/><i>OpenAI / Claude / Gemini</i>"]
-        end
-        subgraph MemoryMod["Memory"]
-            MEM["SlidingWindow | Summary<br/><i>Context Management</i>"]
-        end
-        subgraph ToolMod["Tool"]
-            TM["ToolManager<br/><i>Registry + Execution</i>"]
-        end
-    end
-
-    subgraph SchemaLayer["📦 Schema Layer"]
-        direction LR
-        MSG["Message"]
-        TC["ToolCall"]
-        RESP["LLMResponse"]
-    end
-
-    Input <--> RA
-    BA --> MEM
-    RA --> LLM
-    RA --> TM
-    LLM --> MSG
-    LLM --> RESP
-    TM --> TC
-
-    style UserLayer fill:#e1f5fe
-    style AgentLayer fill:#fff3e0
-    style InfraLayer fill:#f3e5f5
-    style SchemaLayer fill:#e8f5e9
 ```
+┌──────────────────────────────────────────────────────────────┐
+│                         User Layer                           │
+│                      (Input / Output)                        │
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│                        Agent Layer                           │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  ReactAgent  (ReAct Loop: think -> act -> observe)     │  │
+│  │      ↓ extends                                         │  │
+│  │  ToolAgent   (Tool Registration & Execution)           │  │
+│  │      ↓ extends                                         │  │
+│  │  BaseAgent   (Model + Memory + History Management)     │  │
+│  └────────────────────────────────────────────────────────┘  │
+└───────────┬──────────────────┬──────────────────┬────────────┘
+            │                  │                  │
+            ▼                  ▼                  ▼
+┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
+│      Model       │  │      Memory      │  │       Tool       │
+│                  │  │                  │  │                  │
+│  BaseLLM         │  │  BaseMemory      │  │  Tool Protocol   │
+│      ↓           │  │      ↓           │  │      ↓           │
+│  LiteLLMModel    │  │  SlidingWindow   │  │  ToolManager     │
+│  (OpenAI/Claude) │  │  SummaryMemory   │  │  @register_tool  │
+└────────┬─────────┘  └──────────────────┘  └──────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────────────────────┐
+│                       Schema Layer                           │
+│          Message  |  ToolCall  |  LLMResponse                │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**层级说明：**
+
+| 层级 | 职责 | 模块 |
+|------|------|------|
+| **User Layer** | 用户交互入口 | - |
+| **Agent Layer** | 核心控制，ReAct 循环 | `agent/` |
+| **Infrastructure** | 基础设施，三个独立模块 | `model/` `memory/` `tool/` |
+| **Schema Layer** | Pydantic 数据结构 | `model/schema.py` |
 
 ### 核心流程
 
@@ -302,17 +308,6 @@ with LogCollector() as collector:
 
 print(collector.to_text())  # "Step 1\nStep 2"
 ```
-
-## Harbor 评测框架
-
-本项目包含 [Harbor](./harbor/) 子模块，这是 Terminal-Bench 官方评测框架，用于：
-
-- 评测各类 AI Agent（Claude Code、OpenHands、Codex CLI 等）
-- 构建和分享自定义 benchmark
-- 通过 Daytona、Modal 等云服务并行运行评测
-- 生成 RL 优化所需的 rollout 数据
-
-详见 [harbor/README.md](./harbor/README.md)。
 
 ## 运行测试
 

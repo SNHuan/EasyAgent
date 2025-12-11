@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "terminal-bench"
+version = "0.1.0"
+description = "轻量级 AI Agent 框架，基于 LiteLLM 构建"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Yiran Peng"}
+]
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+keywords = ["agent", "llm", "react", "ai", "litellm"]
+dependencies = [
+    "litellm>=1.80.0",
+    "pydantic>=2.12.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/pyr-sh/terminal-bench"
+"Bug Tracker" = "https://github.com/pyr-sh/terminal-bench/issues"
+
+[tool.setuptools.packages.find]
+include = ["agent*", "config*", "debug*", "memory*", "model*", "prompt*", "tool*"]
+exclude = ["test*", "harbor*", "jobs*", "workspace*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["test"]
+
