@@ -31,7 +31,7 @@ graph TB
     subgraph Tool Layer
         TP[Tool Protocol<br/>name / description / execute]
         TM[ToolManager<br/>registry + execution]
-        RT[@register_tool<br/>decorator]
+        RT[register_tool decorator]
         TP --> TM
         RT --> TM
     end
