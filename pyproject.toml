@@ -38,7 +38,7 @@ dev = [
 "Bug Tracker" = "https://github.com/pyr-sh/terminal-bench/issues"
 
 [tool.setuptools.packages.find]
-include = ["agent*", "config*", "debug*", "memory*", "model*", "prompt*", "tool*"]
+include = ["agent*", "config*", "debug*", "memory*", "model*", "pipeline*", "prompt*", "tool*"]
 exclude = ["test*", "harbor*", "jobs*", "workspace*"]
 
 [tool.setuptools.package-data]

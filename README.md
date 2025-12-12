@@ -11,6 +11,7 @@
 - 🛠️ **工具调用** - 基于 Protocol 的工具定义，`@register_tool` 装饰器自动注册
 - 🧠 **智能记忆** - 滑动窗口 + 自动摘要两种策略，自动管理上下文长度
 - 🔄 **ReAct 循环** - think → act → observe 标准推理循环
+- 🔀 **DAG Pipeline** - 基于有向无环图的流水线编排，支持节点并行执行
 - 📊 **调试友好** - 彩色日志输出，token 消耗和成本追踪
 
 ## 安装
@@ -131,6 +132,8 @@ terminal_bench/
 ├── tool/                   # 工具层
 │   ├── base.py             # Tool Protocol
 │   └── manager.py          # ToolManager + @register_tool
+├── pipeline/               # DAG 流水线
+│   └── base.py             # BaseNode, BasePipeline, NodeContext
 ├── prompt/                 # 提示词模板
 ├── config/                 # 配置管理
 ├── debug/                  # 调试工具（彩色日志、日志收集器）
@@ -275,6 +278,59 @@ class Tool(Protocol):
     def init(self) -> None: ...
     def execute(self, **kwargs) -> str: ...
 ```
+
+## Pipeline
+
+基于 DAG（有向无环图）的流水线编排，支持节点并行执行：
+
+```python
+import asyncio
+from pipeline.base import BaseNode, BasePipeline, NodeContext
+
+# 定义节点
+class FetchData(BaseNode):
+    async def execute(self, ctx: NodeContext) -> None:
+        ctx.data = "raw_data"
+
+class ProcessA(BaseNode):
+    async def execute(self, ctx: NodeContext) -> None:
+        ctx.result_a = f"{ctx.data}_processed_A"
+
+class ProcessB(BaseNode):
+    async def execute(self, ctx: NodeContext) -> None:
+        ctx.result_b = f"{ctx.data}_processed_B"
+
+class Merge(BaseNode):
+    async def execute(self, ctx: NodeContext) -> None:
+        ctx.final = f"{ctx.result_a} + {ctx.result_b}"
+
+# 构建 DAG（使用 >> 语法糖）
+fetch = FetchData()
+process_a = ProcessA()
+process_b = ProcessB()
+merge = Merge()
+
+fetch >> [process_a, process_b]  # 并行分支
+process_a >> merge
+process_b >> merge
+
+# 执行
+pipeline = BasePipeline(root=fetch)
+ctx = asyncio.run(pipeline.run())
+print(ctx.final)  # "raw_data_processed_A + raw_data_processed_B"
+
+# 可视化（Mermaid 格式）
+print(pipeline.visualize())
+```
+
+**核心组件：**
+
+| 组件 | 说明 |
+|------|------|
+| `BaseNode` | 节点抽象基类，实现 `execute(ctx)` 方法 |
+| `BasePipeline` | 流水线执行器，按层级并行执行节点 |
+| `NodeContext` | 共享上下文，节点间通过 ctx 传递数据 |
+| `>>` 操作符 | 语法糖，等价于 `node.add(successor)` |
 
 ## 调试
 
