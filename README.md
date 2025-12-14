@@ -137,7 +137,6 @@ terminal_bench/
 ├── prompt/                 # 提示词模板
 ├── config/                 # 配置管理
 ├── debug/                  # 调试工具（彩色日志、日志收集器）
-├── harbor/                 # Agent 评测框架（Terminal-Bench 官方工具）
 └── test/                   # 测试
 ```
 
@@ -390,6 +389,12 @@ print(collector.to_text())  # "Step 1\nStep 2"
 python -m test.test_agent
 python -m test.test_model
 ```
+## 致谢
+
+感谢
+[litellm](https://github.com/BerriAI/litellm), 
+[OpenManus](https://github.com/FoundationAgents/OpenManus.git), 
+为这个项目提供了灵感和帮助。
 
 ## License
 
