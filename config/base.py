@@ -1,18 +1,30 @@
+import os
 from pathlib import Path
 from typing import Any, Self
 
 import litellm
 import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
+# 加载 .env 文件（项目根目录或当前工作目录）
+load_dotenv()
+
 CONFIG_DIR = Path(__file__).parent
-DEFAULT_CONFIG = CONFIG_DIR / "config.yaml"
+
+
+def _get_default_config() -> Path:
+    """优先读取环境变量 DEFAULT_CONFIG，否则使用包内默认配置"""
+    if env_path := os.getenv("EA_DEFAULT_CONFIG"):
+        return Path(env_path).expanduser().resolve()
+    return CONFIG_DIR / "config.yaml"
 
 
 class BaseConfig(BaseModel):
     @classmethod
-    def load(cls, path: str | Path = DEFAULT_CONFIG) -> Self:
-        data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    def load(cls, path: str | Path | None = None) -> Self:
+        config_path = Path(path) if path else _get_default_config()
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         return cls.model_validate(data)
 
 

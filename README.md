@@ -143,13 +143,28 @@ terminal_bench/
 
 ## 快速开始
 
-### 1. 配置模型
+### 1. 配置
 
-复制配置示例并编辑 `config/config.yaml`：
+#### 方式一：使用环境变量（推荐）
+
+复制 `.example_env` 为 `.env`，设置自定义配置路径：
+
+```bash
+cp .example_env .env
+```
+
+```bash
+# .env
+EA_DEFAULT_CONFIG=/path/to/your/config.yaml
+```
+
+#### 方式二：直接修改包内配置
 
 ```bash
 cp config/config_example.yaml config/config.yaml
 ```
+
+#### 配置文件格式
 
 ```yaml
 debug: true
@@ -172,6 +187,10 @@ models:
       max_tokens: 8192
       max_input_tokens: 1048576
 ```
+
+**配置加载优先级：**
+1. 环境变量 `EA_DEFAULT_CONFIG` 指定的路径
+2. 包内默认 `config/config.yaml`
 
 ### 2. 定义工具
 
