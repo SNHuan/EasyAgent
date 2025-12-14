@@ -17,7 +17,7 @@ A lightweight AI Agent framework built on LiteLLM, featuring multi-model support
 - 🔄 **ReAct Loop** - Standard think → act → observe reasoning cycle
 - 🔀 **DAG Pipeline** - Directed Acyclic Graph workflow orchestration with parallel execution
 - 📊 **Debug Friendly** - Colored logging, token usage and cost tracking
-- 🪶 **Minimal Footprint** - Only ~1150 lines of core code, no bloat, easy to read/modify/extend
+- 🪶 **Minimal Footprint** - Only ~809 lines of core code, no bloat, easy to read/modify/extend
 
 ## Installation
 
