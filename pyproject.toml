@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "terminal-bench"
+name = "easyagent"
 version = "0.1.0"
-description = "轻量级 AI Agent 框架，基于 LiteLLM 构建"
+description = "A lightweight AI Agent framework built on LiteLLM"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
