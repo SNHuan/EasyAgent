@@ -3,25 +3,25 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-English | [简体中文](README_CN.md)
+English | [中文](README.md)
 
-轻量级 AI Agent 框架，基于 LiteLLM 构建，支持多模型、工具调用和智能记忆管理。
+A lightweight AI Agent framework built on LiteLLM, featuring multi-model support, tool calling, and intelligent memory management.
 
-> **~809 行代码，完整实现生产级 Agent 能力** — 多模型适配、工具调用、智能记忆、ReAct 推理、DAG 流水线、调试追踪，核心代码精简到极致。
+> **~809 lines of code, production-ready Agent capabilities** — Multi-model adapters, tool calling, smart memory, ReAct reasoning, DAG pipelines, debug tracing. Core code refined to the extreme.
 
-## 特性
+## Features
 
-- **多模型支持** - 通过 LiteLLM 统一接口，支持 OpenAI、Anthropic、Gemini 等主流模型
-- **工具调用** - 基于 Protocol 的工具定义，`@register_tool` 装饰器自动注册
-- **记忆模块** - 滑动窗口 + 自动摘要两种策略，自动管理上下文长度
-- **ReAct 循环** - think → act → observe 标准推理循环
-- **DAG Pipeline** - 基于有向无环图的流水线编排，支持节点并行执行
-- **调试友好** - 彩色日志输出，token 消耗和成本追踪
-- **极致精简** - 核心代码仅 ~809 行，无冗余抽象，易读易改易扩展
+- **Multi-Model Support** - Unified interface via LiteLLM for OpenAI, Anthropic, Gemini, and more
+- **Tool Calling** - Protocol-based tool definition with `@register_tool` decorator
+- **Memory** - Sliding window + auto-summarization strategies for context management
+- **ReAct Loop** - Standard think → act → observe reasoning cycle
+- **DAG Pipeline** - Directed Acyclic Graph workflow orchestration with parallel execution
+- **Debug Friendly** - Colored logging, token usage and cost tracking
+- **Minimal Footprint** - Only ~809 lines of core code, no bloat, easy to read/modify/extend
 
-## 安装
+## Installation
 
-**开发模式安装（推荐）：**
+**Development mode (recommended):**
 
 ```bash
 git clone https://github.com/SNHuan/EasyAgent.git
@@ -29,17 +29,17 @@ cd EasyAgent
 pip install -e .
 ```
 
-**安装开发依赖：**
+**Install dev dependencies:**
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-**核心依赖：**
+**Core dependencies:**
 - `litellm>=1.80.0`
 - `pydantic>=2.12.5`
 
-## 架构设计
+## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -76,82 +76,49 @@ pip install -e ".[dev]"
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**层级说明：**
+**Layer Overview:**
 
-| 层级 | 职责 | 模块 |
-|------|------|------|
-| **User Layer** | 用户交互入口 | - |
-| **Agent Layer** | 核心控制，ReAct 循环 | `agent/` |
-| **Infrastructure** | 基础设施，三个独立模块 | `model/` `memory/` `tool/` |
-| **Schema Layer** | Pydantic 数据结构 | `model/schema.py` |
+| Layer | Responsibility | Module |
+|-------|----------------|--------|
+| **User Layer** | User interaction entry point | - |
+| **Agent Layer** | Core control, ReAct loop | `agent/` |
+| **Infrastructure** | Independent modules | `model/` `memory/` `tool/` |
+| **Schema Layer** | Pydantic data structures | `model/schema.py` |
 
-### 核心流程
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant A as ReactAgent
-    participant M as LiteLLMModel
-    participant T as ToolManager
-    participant Mem as Memory
-
-    U->>A: run(user_input)
-    A->>Mem: add(user_message)
-
-    loop ReAct Loop (max_iterations)
-        A->>Mem: get_messages()
-        Mem-->>A: history
-        A->>M: call_with_history(messages, tools)
-        M-->>A: LLMResponse
-
-        alt No Tool Calls
-            A->>Mem: add(assistant_message)
-            A-->>U: final_answer
-        else Has Tool Calls
-            A->>Mem: add(assistant_message)
-            loop Each Tool Call
-                A->>T: execute(name, args)
-                T-->>A: result
-                A->>Mem: add(tool_result)
-            end
-        end
-    end
-```
-
-## 项目结构
+## Project Structure
 
 ```
 EasyAgent/
-├── agent/                  # Agent 层
-│   ├── base.py             # BaseAgent 抽象基类
-│   ├── tool_agent.py       # ToolAgent（支持工具调用）
-│   └── react_agent.py      # ReactAgent（ReAct 循环）
-├── model/                  # 模型层
-│   ├── base.py             # BaseLLM 抽象基类
-│   ├── litellm_model.py    # LiteLLM 实现
+├── agent/                  # Agent layer
+│   ├── base.py             # BaseAgent abstract class
+│   ├── tool_agent.py       # ToolAgent (tool calling support)
+│   └── react_agent.py      # ReactAgent (ReAct loop)
+├── model/                  # Model layer
+│   ├── base.py             # BaseLLM abstract class
+│   ├── litellm_model.py    # LiteLLM implementation
 │   └── schema.py           # Message, ToolCall, LLMResponse
-├── memory/                 # 记忆层
-│   ├── base.py             # BaseMemory 抽象基类
-│   ├── sliding_window.py   # 滑动窗口策略
-│   └── summary.py          # 自动摘要策略
-├── tool/                   # 工具层
+├── memory/                 # Memory layer
+│   ├── base.py             # BaseMemory abstract class
+│   ├── sliding_window.py   # Sliding window strategy
+│   └── summary.py          # Auto-summarization strategy
+├── tool/                   # Tool layer
 │   ├── base.py             # Tool Protocol
 │   └── manager.py          # ToolManager + @register_tool
-├── pipeline/               # DAG 流水线
+├── pipeline/               # DAG Pipeline
 │   └── base.py             # BaseNode, BasePipeline, NodeContext
-├── prompt/                 # 提示词模板
-├── config/                 # 配置管理
-├── debug/                  # 调试工具（彩色日志、日志收集器）
-└── test/                   # 测试
+├── prompt/                 # Prompt templates
+├── config/                 # Configuration management
+├── debug/                  # Debug utilities (colored logs)
+└── test/                   # Tests
 ```
 
-## 快速开始
+## Quick Start
 
-### 1. 配置
+### 1. Configuration
 
-#### 方式一：使用环境变量（推荐）
+#### Option 1: Environment Variable (Recommended)
 
-复制 `.example_env` 为 `.env`，设置自定义配置路径：
+Copy `.example_env` to `.env` and set your custom config path:
 
 ```bash
 cp .example_env .env
@@ -162,13 +129,13 @@ cp .example_env .env
 EA_DEFAULT_CONFIG=/path/to/your/config.yaml
 ```
 
-#### 方式二：直接修改包内配置
+#### Option 2: Edit Package Config
 
 ```bash
 cp config/config_example.yaml config/config.yaml
 ```
 
-#### 配置文件格式
+#### Config File Format
 
 ```yaml
 debug: true
@@ -180,7 +147,7 @@ models:
     base_url: https://api.openai.com/v1
     api_key: sk-xxx
 
-  # 自定义模型支持成本配置
+  # Custom models with cost configuration
   gemini-2.5-flash:
     api_type: openai
     base_url: https://your-proxy.com/v1
@@ -192,38 +159,11 @@ models:
       max_input_tokens: 1048576
 ```
 
-**配置加载优先级：**
-1. 环境变量 `EA_DEFAULT_CONFIG` 指定的路径
-2. 包内默认 `config/config.yaml`
+**Config Loading Priority:**
+1. Path specified by `EA_DEFAULT_CONFIG` environment variable
+2. Default `config/config.yaml` in package
 
-### 2. 定义工具
-
-使用 `@register_tool` 装饰器定义工具：
-
-```python
-from tool import register_tool
-
-@register_tool
-class GetWeather:
-    name = "get_weather"
-    type = "function"
-    description = "Get the weather for a city."
-    parameters = {
-        "type": "object",
-        "properties": {"city": {"type": "string", "description": "City name"}},
-        "required": ["city"],
-    }
-
-    def init(self) -> None:
-        """工具初始化时调用"""
-        pass
-
-    def execute(self, city: str) -> str:
-        """执行工具逻辑"""
-        return f"The weather in {city} is sunny, 25°C."
-```
-
-### 3. 创建 Agent
+### 3. Create Agent
 
 ```python
 import asyncio
@@ -238,65 +178,65 @@ agent = ReactAgent(
     model=model,
     tools=["get_weather"],
     system_prompt="You are a helpful assistant.",
-    max_iterations=10,  # 最大推理轮数
+    max_iterations=10,
 )
 
 result = asyncio.run(agent.run("What's the weather in Beijing?"))
 print(result)
 ```
 
-## 核心组件
+## Core Components
 
-### Agent 层
+### Agent Layer
 
-| 类 | 说明 |
-|---|---|
-| `BaseAgent` | 抽象基类，持有 model、memory，管理对话历史 |
-| `ToolAgent` | 扩展 BaseAgent，支持工具注册和执行 |
-| `ReactAgent` | ReAct 循环实现，think → act → observe |
+| Class | Description |
+|-------|-------------|
+| `BaseAgent` | Abstract base class with model, memory, and history management |
+| `ToolAgent` | Extends BaseAgent with tool registration and execution |
+| `ReactAgent` | ReAct loop implementation: think → act → observe |
 
-### Model 层
+### Model Layer
 
-| 类 | 说明 |
-|---|---|
-| `BaseLLM` | 抽象接口，定义 `call()` 和 `call_with_history()` |
-| `LiteLLMModel` | LiteLLM 实现，支持所有 LiteLLM 兼容模型 |
-| `Message` | Pydantic 消息模型（system/user/assistant/tool） |
-| `ToolCall` | 工具调用结构 |
-| `LLMResponse` | 统一响应格式，含 content、tool_calls、usage |
+| Class | Description |
+|-------|-------------|
+| `BaseLLM` | Abstract interface defining `call()` and `call_with_history()` |
+| `LiteLLMModel` | LiteLLM implementation supporting all LiteLLM-compatible models |
+| `Message` | Pydantic message model (system/user/assistant/tool) |
+| `ToolCall` | Tool call structure |
+| `LLMResponse` | Unified response format with content, tool_calls, usage |
 
-### Memory 层
+### Memory Layer
 
-| 策略 | 适用场景 | 特点 |
-|------|---------|------|
-| `SlidingWindowMemory` | 短对话 | 按消息数/token 数截断，保留最新消息 |
-| `SummaryMemory` | 长对话 | 自动摘要压缩，持久化到文件，保证不超 max_tokens |
+| Strategy | Use Case | Features |
+|----------|----------|----------|
+| `SlidingWindowMemory` | Short conversations | Truncate by message/token count, keep recent messages |
+| `SummaryMemory` | Long conversations | Auto-summarize and persist, respects max_tokens |
 
 ```python
 from memory import SlidingWindowMemory, SummaryMemory
 
-# 滑动窗口：限制消息数和 token 数
+# Sliding window: limit by message and token count
 memory = SlidingWindowMemory(max_messages=20, max_tokens=4000)
 
-# 自动摘要：适合长任务，max_tokens 自动从 litellm 获取
+# Auto-summary: for long tasks, max_tokens fetched from litellm
 memory = SummaryMemory(
-    task_id="task_001",      # 任务 ID，用于持久化
-    reserve_ratio=0.3,       # 保留给最近消息的比例
-    workspace="workspace",   # 摘要存储目录
+    task_id="task_001",
+    reserve_ratio=0.3,
+    workspace="workspace",
 )
 ```
 
-### Tool 层
+### Tool Layer
 
-工具需实现 `Tool` Protocol：
+Tools must implement the `Tool` Protocol:
 
 ```python
 from typing import Protocol
 
 class Tool(Protocol):
-    name: str           # 工具名称
-    type: str           # 固定为 "function"
-    description: str    # 工具描述
+    name: str
+    type: str
+    description: str
 
     def init(self) -> None: ...
     def execute(self, **kwargs) -> str: ...
@@ -304,13 +244,13 @@ class Tool(Protocol):
 
 ## Pipeline
 
-基于 DAG（有向无环图）的流水线编排，支持节点并行执行：
+DAG-based workflow orchestration with parallel node execution:
 
 ```python
 import asyncio
 from pipeline.base import BaseNode, BasePipeline, NodeContext
 
-# 定义节点
+# Define nodes
 class FetchData(BaseNode):
     async def execute(self, ctx: NodeContext) -> None:
         ctx.data = "raw_data"
@@ -327,44 +267,44 @@ class Merge(BaseNode):
     async def execute(self, ctx: NodeContext) -> None:
         ctx.final = f"{ctx.result_a} + {ctx.result_b}"
 
-# 构建 DAG（使用 >> 语法糖）
+# Build DAG using >> syntax
 fetch = FetchData()
 process_a = ProcessA()
 process_b = ProcessB()
 merge = Merge()
 
-fetch >> [process_a, process_b]  # 并行分支
+fetch >> [process_a, process_b]  # Parallel branches
 process_a >> merge
 process_b >> merge
 
-# 执行
+# Execute
 pipeline = BasePipeline(root=fetch)
 ctx = asyncio.run(pipeline.run())
 print(ctx.final)  # "raw_data_processed_A + raw_data_processed_B"
 
-# 可视化（Mermaid 格式）
+# Visualize (Mermaid format)
 print(pipeline.visualize())
 ```
 
-**核心组件：**
+**Core Components:**
 
-| 组件 | 说明 |
-|------|------|
-| `BaseNode` | 节点抽象基类，实现 `execute(ctx)` 方法 |
-| `BasePipeline` | 流水线执行器，按层级并行执行节点 |
-| `NodeContext` | 共享上下文，节点间通过 ctx 传递数据 |
-| `>>` 操作符 | 语法糖，等价于 `node.add(successor)` |
+| Component | Description |
+|-----------|-------------|
+| `BaseNode` | Abstract node class, implement `execute(ctx)` |
+| `BasePipeline` | Pipeline executor with level-based parallel execution |
+| `NodeContext` | Shared context for inter-node data passing |
+| `>>` operator | Syntactic sugar for `node.add(successor)` |
 
-## 调试
+## Debugging
 
-开启 debug 模式后，会输出彩色日志：
+Enable debug mode for colored logs:
 
 ```yaml
 # config/config.yaml
 debug: true
 ```
 
-日志示例：
+Log output example:
 ```
 14:30:15 DEBUG [ReactAgent] User: What's the weather?
 14:30:15 DEBUG [ReactAgent] Iteration 1/10
@@ -374,7 +314,7 @@ debug: true
 14:30:17 INFO  [ReactAgent] Final: The weather in Beijing is sunny with 25°C.
 ```
 
-使用 `LogCollector` 收集日志：
+Use `LogCollector` to capture logs:
 
 ```python
 from debug.log import LogCollector, Logger
@@ -388,20 +328,45 @@ with LogCollector() as collector:
 print(collector.to_text())  # "Step 1\nStep 2"
 ```
 
-## 运行测试
+## Running Tests
 
 ```bash
 python -m test.test_agent
 python -m test.test_model
 ```
-## 致谢
 
-感谢
-[litellm](https://github.com/BerriAI/litellm), 
-[OpenManus](https://github.com/FoundationAgents/OpenManus.git), 
-为这个项目提供了灵感和帮助。
+## Acknowledgements
+
+Thanks to [litellm](https://github.com/BerriAI/litellm) and [OpenManus](https://github.com/FoundationAgents/OpenManus.git) for inspiration and guidance.
 
 ## License
 
 [MIT License](LICENSE) © 2025 Yiran Peng
+
+### 2. Define Tools
+
+Use the `@register_tool` decorator:
+
+```python
+from tool import register_tool
+
+@register_tool
+class GetWeather:
+    name = "get_weather"
+    type = "function"
+    description = "Get the weather for a city."
+    parameters = {
+        "type": "object",
+        "properties": {"city": {"type": "string", "description": "City name"}},
+        "required": ["city"],
+    }
+
+    def init(self) -> None:
+        """Called when tool is initialized"""
+        pass
+
+    def execute(self, city: str) -> str:
+        """Execute tool logic"""
+        return f"The weather in {city} is sunny, 25°C."
+```
 
