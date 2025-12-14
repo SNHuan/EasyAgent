@@ -7,6 +7,8 @@ English | [中文](README.md)
 
 A lightweight AI Agent framework built on LiteLLM, featuring multi-model support, tool calling, and intelligent memory management.
 
+> **~1150 lines of code, production-ready Agent capabilities** — Multi-model adapters, tool calling, smart memory, ReAct reasoning, DAG pipelines, debug tracing. Core code refined to the extreme.
+
 ## Features
 
 - 🔌 **Multi-Model Support** - Unified interface via LiteLLM for OpenAI, Anthropic, Gemini, and more
@@ -15,6 +17,7 @@ A lightweight AI Agent framework built on LiteLLM, featuring multi-model support
 - 🔄 **ReAct Loop** - Standard think → act → observe reasoning cycle
 - 🔀 **DAG Pipeline** - Directed Acyclic Graph workflow orchestration with parallel execution
 - 📊 **Debug Friendly** - Colored logging, token usage and cost tracking
+- 🪶 **Minimal Footprint** - Only ~1150 lines of core code, no bloat, easy to read/modify/extend
 
 ## Installation
 
