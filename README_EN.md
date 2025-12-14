@@ -7,7 +7,7 @@ English | [中文](README.md)
 
 A lightweight AI Agent framework built on LiteLLM, featuring multi-model support, tool calling, and intelligent memory management.
 
-> **~1150 lines of code, production-ready Agent capabilities** — Multi-model adapters, tool calling, smart memory, ReAct reasoning, DAG pipelines, debug tracing. Core code refined to the extreme.
+> **~809 lines of code, production-ready Agent capabilities** — Multi-model adapters, tool calling, smart memory, ReAct reasoning, DAG pipelines, debug tracing. Core code refined to the extreme.
 
 ## Features
 
