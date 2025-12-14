@@ -3,7 +3,7 @@ from typing import Any, Protocol, runtime_checkable
 
 @runtime_checkable
 class Tool(Protocol):
-    """Tool 鸭子类型协议"""
+    """Tool duck-typing protocol"""
 
     name: str
     type: str  # "function"

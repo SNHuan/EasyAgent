@@ -6,7 +6,7 @@ from tool.base import Tool
 
 
 class ToolManager:
-    """工具管理器单例"""
+    """Tool manager singleton"""
 
     _instance: "ToolManager | None" = None
     _tools: dict[str, Tool]
@@ -27,7 +27,7 @@ class ToolManager:
         return self._tools.get(name)
 
     def get_schema(self, names: list[str] | None = None) -> list[dict[str, Any]]:
-        """获取工具 schema 用于 API 请求"""
+        """Get tool schema for API requests"""
         if names:
             tools = [self._tools[n] for n in names if n in self._tools]
         else:
@@ -35,7 +35,7 @@ class ToolManager:
         return [self._tool_to_schema(t) for t in tools]
 
     def format_tool_calls(self, tool_calls: list[ToolCall]) -> list[dict[str, Any]]:
-        """格式化 tool_calls 用于消息历史"""
+        """Format tool_calls for message history"""
         return [
             {
                 "id": tc.id,
@@ -61,7 +61,7 @@ class ToolManager:
 
 
 def register_tool(cls: type) -> type:
-    """类装饰器：自动注册 tool 到 ToolManager"""
+    """Class decorator: auto-register tool to ToolManager"""
     ToolManager().register(cls())
     return cls
 

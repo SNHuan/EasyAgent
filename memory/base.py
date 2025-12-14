@@ -4,26 +4,26 @@ from model.schema import Message
 
 
 class BaseMemory(ABC):
-    """Memory 抽象基类：管理对话历史"""
+    """Abstract base class for Memory: manages conversation history"""
 
     @abstractmethod
     def add(self, message: Message) -> None:
-        """添加消息"""
+        """Add a message"""
         ...
 
     @abstractmethod
     def get_messages(self) -> list[Message]:
-        """获取当前有效的消息列表"""
+        """Get current valid message list"""
         ...
 
     @abstractmethod
     def clear(self) -> None:
-        """清空历史"""
+        """Clear history"""
         ...
 
     @property
     @abstractmethod
     def token_count(self) -> int:
-        """当前总 token 数"""
+        """Current total token count"""
         ...
 

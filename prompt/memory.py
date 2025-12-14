@@ -1,4 +1,4 @@
-"""Memory 相关提示词模板"""
+"""Memory-related prompt templates"""
 
 SUMMARY_FORMAT = """\
 # Conversation Summary

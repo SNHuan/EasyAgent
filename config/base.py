@@ -7,14 +7,14 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-# 加载 .env 文件（项目根目录或当前工作目录）
+# Load .env file from project root or current working directory
 load_dotenv()
 
 CONFIG_DIR = Path(__file__).parent
 
 
 def _get_default_config() -> Path:
-    """优先读取环境变量 DEFAULT_CONFIG，否则使用包内默认配置"""
+    """Prioritize EA_DEFAULT_CONFIG env var, otherwise use package default config"""
     if env_path := os.getenv("EA_DEFAULT_CONFIG"):
         return Path(env_path).expanduser().resolve()
     return CONFIG_DIR / "config.yaml"
@@ -32,7 +32,7 @@ _app_config: "AppConfig | None" = None
 
 
 class AppConfig(BaseConfig):
-    """全局应用配置"""
+    """Global application configuration"""
 
     debug: bool = False
     summary_model: str | None = None
@@ -51,7 +51,7 @@ class AppConfig(BaseConfig):
 
 
 def get_summary_model(fallback: str = "gpt-4o") -> str:
-    """获取 summary 模型名称，未配置则使用 fallback"""
+    """Get summary model name, use fallback if not configured"""
     return AppConfig.get().summary_model or fallback
 
 
@@ -77,5 +77,5 @@ class ModelConfig(BaseConfig):
 
 
 def is_debug() -> bool:
-    """快捷方法：检查是否开启 debug 模式"""
+    """Shortcut: check if debug mode is enabled"""
     return AppConfig.get().debug

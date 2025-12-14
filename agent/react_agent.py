@@ -9,7 +9,7 @@ from prompt.react import REACT_SYSTEM_PROMPT, REACT_END_TOKEN
 
 
 class ReactAgent(ToolAgent):
-    """ReAct 风格 Agent：think → act → observe 循环"""
+    """ReAct-style Agent: think -> act -> observe loop"""
 
     def __init__(
         self,
@@ -24,17 +24,17 @@ class ReactAgent(ToolAgent):
         self._max_iterations = max_iterations
 
     def _build_system_prompt(self, user_prompt: str) -> str:
-        """组合 ReAct 系统提示词和用户提示词"""
+        """Combine ReAct system prompt with user prompt"""
         if user_prompt:
             return f"{REACT_SYSTEM_PROMPT}\n\n{user_prompt}"
         return REACT_SYSTEM_PROMPT
 
     def _is_finished(self, content: str) -> bool:
-        """检测输出是否包含终止符"""
+        """Check if output contains termination token"""
         return REACT_END_TOKEN in content
 
     def _extract_final_answer(self, content: str) -> str:
-        """提取终止符之前的最终回答"""
+        """Extract final answer before termination token"""
         if REACT_END_TOKEN in content:
             return content.split(REACT_END_TOKEN)[0].strip()
         return content
@@ -55,7 +55,7 @@ class ReactAgent(ToolAgent):
 
             response = await self._model.call_with_history(msgs, **kwargs)
 
-            # 检查是否包含终止符
+            # Check for termination token
             if self._is_finished(response.content):
                 final_answer = self._extract_final_answer(response.content)
                 self.add_message(Message.assistant(final_answer))
@@ -63,7 +63,7 @@ class ReactAgent(ToolAgent):
                     self._log.info(f"Final: {final_answer}", color=Color.CYAN)
                 return final_answer
 
-            # 无工具调用且无终止符，继续等待
+            # No tool calls and no termination token, continue
             if not response.tool_calls:
                 self.add_message(Message.assistant(response.content))
                 if self._debug:

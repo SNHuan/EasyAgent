@@ -57,7 +57,7 @@ class Logger:
             extra=extra if extra else None,
         )
 
-        # 收集到当前上下文的所有收集器
+        # Collect to all collectors in current context
         stack = _collector_stack.get()
         if stack:
             for collector in stack:
@@ -118,5 +118,5 @@ class LogCollector:
         return "\n".join(self.messages())
 
 
-# 全局默认 logger
+# Global default logger
 log = Logger()

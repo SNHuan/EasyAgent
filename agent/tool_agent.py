@@ -11,7 +11,7 @@ _manager = ToolManager()
 
 
 class ToolAgent(BaseAgent):
-    """支持工具调用的 Agent 基类"""
+    """Base Agent with tool calling support"""
 
     def __init__(
         self,

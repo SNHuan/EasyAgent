@@ -1,4 +1,4 @@
-"""ReAct Agent 相关提示词模板"""
+"""ReAct Agent prompt templates"""
 
 REACT_END_TOKEN = "<<REACT_COMPLETE>>"
 

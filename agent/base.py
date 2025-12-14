@@ -10,7 +10,7 @@ from model.schema import Message
 
 
 class BaseAgent(ABC):
-    """Agent 基类：持有 model、system_prompt、维护上下文历史"""
+    """Base Agent: holds model, system_prompt, maintains context history"""
 
     def __init__(
         self,

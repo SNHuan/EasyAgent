@@ -12,7 +12,7 @@ class BaseLLM(ABC):
         system_prompt: str | None = None,
         **kwargs,
     ) -> LLMResponse:
-        """单次调用：user_prompt + 可选 system_prompt -> response"""
+        """Single call: user_prompt + optional system_prompt -> response"""
         pass
 
     @abstractmethod
@@ -21,5 +21,5 @@ class BaseLLM(ABC):
         messages: list[dict[str, Any]],
         **kwargs,
     ) -> LLMResponse:
-        """带历史消息的调用，用于多轮对话"""
+        """Call with message history for multi-turn conversations"""
         pass

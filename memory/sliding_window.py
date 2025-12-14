@@ -5,7 +5,7 @@ from model.schema import Message
 
 
 class SlidingWindowMemory(BaseMemory):
-    """滑动窗口 Memory：按消息数量 + token 数量截断"""
+    """Sliding Window Memory: truncates by message count + token count"""
 
     def __init__(
         self,
@@ -37,19 +37,19 @@ class SlidingWindowMemory(BaseMemory):
         return sum(self._token_counts)
 
     def _count_tokens(self, message: Message) -> int:
-        """使用 litellm 计算单条消息的 token 数"""
+        """Count tokens for a single message using litellm"""
         msg_dict = message.model_dump(exclude_none=True)
         return litellm.token_counter(model=self._model, messages=[msg_dict])
 
     def _truncate(self) -> None:
-        """执行截断策略：优先保留最新消息"""
-        # 消息数量截断
+        """Execute truncation: prioritize keeping recent messages"""
+        # Truncate by message count
         if self._max_messages and len(self._messages) > self._max_messages:
             excess = len(self._messages) - self._max_messages
             self._messages = self._messages[excess:]
             self._token_counts = self._token_counts[excess:]
 
-        # token 数量截断
+        # Truncate by token count
         if self._max_tokens:
             while self._messages and self.token_count > self._max_tokens:
                 self._messages.pop(0)
