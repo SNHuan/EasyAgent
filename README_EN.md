@@ -11,21 +11,21 @@ A lightweight AI Agent framework built on LiteLLM, featuring multi-model support
 
 ## Features
 
-- 🔌 **Multi-Model Support** - Unified interface via LiteLLM for OpenAI, Anthropic, Gemini, and more
-- 🛠️ **Tool Calling** - Protocol-based tool definition with `@register_tool` decorator
-- 🧠 **Smart Memory** - Sliding window + auto-summarization strategies for context management
-- 🔄 **ReAct Loop** - Standard think → act → observe reasoning cycle
-- 🔀 **DAG Pipeline** - Directed Acyclic Graph workflow orchestration with parallel execution
-- 📊 **Debug Friendly** - Colored logging, token usage and cost tracking
-- 🪶 **Minimal Footprint** - Only ~809 lines of core code, no bloat, easy to read/modify/extend
+- **Multi-Model Support** - Unified interface via LiteLLM for OpenAI, Anthropic, Gemini, and more
+- **Tool Calling** - Protocol-based tool definition with `@register_tool` decorator
+- **Memory** - Sliding window + auto-summarization strategies for context management
+- **ReAct Loop** - Standard think → act → observe reasoning cycle
+- **DAG Pipeline** - Directed Acyclic Graph workflow orchestration with parallel execution
+- **Debug Friendly** - Colored logging, token usage and cost tracking
+- **Minimal Footprint** - Only ~809 lines of core code, no bloat, easy to read/modify/extend
 
 ## Installation
 
 **Development mode (recommended):**
 
 ```bash
-git clone https://github.com/pyr-sh/terminal-bench.git
-cd terminal-bench
+git clone https://github.com/SNHuan/EasyAgent.git
+cd EasyAgent
 pip install -e .
 ```
 
@@ -88,7 +88,7 @@ pip install -e ".[dev]"
 ## Project Structure
 
 ```
-terminal_bench/
+EasyAgent/
 ├── agent/                  # Agent layer
 │   ├── base.py             # BaseAgent abstract class
 │   ├── tool_agent.py       # ToolAgent (tool calling support)

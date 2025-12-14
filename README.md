@@ -11,21 +11,21 @@
 
 ## 特性
 
-- 🔌 **多模型支持** - 通过 LiteLLM 统一接口，支持 OpenAI、Anthropic、Gemini 等主流模型
-- 🛠️ **工具调用** - 基于 Protocol 的工具定义，`@register_tool` 装饰器自动注册
-- 🧠 **智能记忆** - 滑动窗口 + 自动摘要两种策略，自动管理上下文长度
-- 🔄 **ReAct 循环** - think → act → observe 标准推理循环
-- 🔀 **DAG Pipeline** - 基于有向无环图的流水线编排，支持节点并行执行
-- 📊 **调试友好** - 彩色日志输出，token 消耗和成本追踪
-- 🪶 **极致精简** - 核心代码仅 ~809 行，无冗余抽象，易读易改易扩展
+- **多模型支持** - 通过 LiteLLM 统一接口，支持 OpenAI、Anthropic、Gemini 等主流模型
+- **工具调用** - 基于 Protocol 的工具定义，`@register_tool` 装饰器自动注册
+- **记忆模块** - 滑动窗口 + 自动摘要两种策略，自动管理上下文长度
+- **ReAct 循环** - think → act → observe 标准推理循环
+- **DAG Pipeline** - 基于有向无环图的流水线编排，支持节点并行执行
+- **调试友好** - 彩色日志输出，token 消耗和成本追踪
+- **极致精简** - 核心代码仅 ~809 行，无冗余抽象，易读易改易扩展
 
 ## 安装
 
 **开发模式安装（推荐）：**
 
 ```bash
-git clone https://github.com/pyr-sh/terminal-bench.git
-cd terminal-bench
+git clone https://github.com/SNHuan/EasyAgent.git
+cd EasyAgent
 pip install -e .
 ```
 
@@ -121,7 +121,7 @@ sequenceDiagram
 ## 项目结构
 
 ```
-terminal_bench/
+EasyAgent/
 ├── agent/                  # Agent 层
 │   ├── base.py             # BaseAgent 抽象基类
 │   ├── tool_agent.py       # ToolAgent（支持工具调用）
