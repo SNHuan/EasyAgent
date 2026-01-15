@@ -21,17 +21,17 @@
 
 ## 安装
 
-**开发模式安装（推荐）：**
+**从 PyPI 安装：**
+
+```bash
+pip install easy-agent-sdk
+```
+
+**从源码安装（开发模式）：**
 
 ```bash
 git clone https://github.com/SNHuan/EasyAgent.git
 cd EasyAgent
-pip install -e .
-```
-
-**安装开发依赖：**
-
-```bash
 pip install -e ".[dev]"
 ```
 

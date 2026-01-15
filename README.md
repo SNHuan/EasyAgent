@@ -21,17 +21,17 @@ A lightweight AI Agent framework built on LiteLLM, featuring multi-model support
 
 ## Installation
 
-**Development mode (recommended):**
+**From PyPI:**
+
+```bash
+pip install easy-agent-sdk
+```
+
+**From source (development mode):**
 
 ```bash
 git clone https://github.com/SNHuan/EasyAgent.git
 cd EasyAgent
-pip install -e .
-```
-
-**Install dev dependencies:**
-
-```bash
 pip install -e ".[dev]"
 ```
 

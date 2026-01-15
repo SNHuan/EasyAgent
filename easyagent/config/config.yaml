@@ -1,0 +1,37 @@
+debug: true
+
+summary_model: gpt-4o-mini
+
+models:
+  claude-4-5-haiku:
+    api_type: openai
+    base_url: https://newapi.deepwisdom.ai/v1
+    api_key: sk-iDSC8YeVUfcmymCGwM11FOhSpmM3qMktlAUExmUmvZkBZE2S
+    aliases:
+      - claude-haiku-4-5-20251001
+    cost:
+      input_cost_per_token:  0.000001   # $1 / 1,000,000 tokens
+      output_cost_per_token: 0.000005   # $5 / 1,000,000 tokens
+      max_input_tokens:      200000     # context_length
+      max_output_tokens:     64000      # top_provider.max_completion_tokens
+      max_tokens:            64000  
+  gemini-3-flash-preview:
+    api_type: openai
+    base_url: https://newapi.deepwisdom.ai/v1
+    api_key: sk-iDSC8YeVUfcmymCGwM11FOhSpmM3qMktlAUExmUmvZkBZE2S
+    cost:
+      input_cost_per_token: 0.0000003
+      output_cost_per_token: 0.00000252
+      max_tokens: 8192
+      max_input_tokens: 1048576
+      max_output_tokens: 8192
+  gemini-3-pro-preview:
+    api_type: openai
+    base_url: 
+    api_key: 
+    cost:
+      input_cost_per_token: 0.00000125
+      output_cost_per_token: 0.00001
+      max_tokens: 65536
+      max_input_tokens: 1048576
+      max_output_tokens: 65536
