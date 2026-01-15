@@ -4,7 +4,7 @@ from easyagent.agent import ReactAgent, ToolAgent
 from easyagent.memory import BaseMemory, SlidingWindowMemory, SummaryMemory
 from easyagent.tool import Tool, ToolManager, register_tool
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = [
     # Agent
     "ReactAgent",
