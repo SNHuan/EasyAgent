@@ -40,6 +40,15 @@ dev = [
     "build",
     "twine",
 ]
+sandbox = [
+    "docker>=7.0",  # Optional: for Docker sandbox (CLI fallback available)
+]
+web = [
+    "httpx>=0.27",  # For SerperSearch tool
+]
+all = [
+    "easy-agent-sdk[sandbox,web]",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/SNHuan/EasyAgent"
