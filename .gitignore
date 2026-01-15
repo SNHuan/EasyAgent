@@ -4,7 +4,7 @@
 __pycache__/
 *.py[cod]
 
-/config/config.yaml
+/easyagent/config/config.yaml
 *.egg-info
 workspace/
 .env
