@@ -9,10 +9,10 @@ description = "A lightweight AI Agent framework built on LiteLLM with ReAct reas
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "Yiran Peng", email = "pyr@pyr.sh"}
+    {name = "Yiran Peng", email = "amagipeng@gmail.com"}
 ]
 maintainers = [
-    {name = "Yiran Peng", email = "pyr@pyr.sh"}
+    {name = "Yiran Peng", email = "amagipeng@gmail.com"}
 ]
 requires-python = ">=3.12"
 classifiers = [

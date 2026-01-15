@@ -1,7 +1,11 @@
 import json
+import warnings
 from typing import Any
 
 import litellm
+
+# Suppress Pydantic serialization warnings from litellm
+warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
 from easyagent.config.base import is_debug
 from easyagent.debug.log import Color, Logger
