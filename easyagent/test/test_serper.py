@@ -3,7 +3,6 @@ import asyncio
 from easyagent.agent import ReactAgent
 from easyagent.config.base import ModelConfig
 from easyagent.model.litellm_model import LiteLLMModel
-from easyagent.tool import SerperSearch  # 导入即注册
 
 
 async def main():
