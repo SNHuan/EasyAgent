@@ -115,7 +115,7 @@ class ReactAgent(ToolAgent):
             for tc in response.tool_calls:
                 if self._debug:
                     self._log.info(f"Tool call: {tc.name}({tc.arguments})", color=Color.YELLOW)
-                result = self._execute_tool(tc.name, tc.arguments)
+                result = await self._execute_tool(tc.name, tc.arguments)
                 if self._debug:
                     self._log.info(f"Tool result: {result}", color=Color.GREEN)
                 self.add_message(Message.tool(result, tc.id))

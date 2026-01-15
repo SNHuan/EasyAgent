@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from inspect import iscoroutinefunction
 from typing import Any
 
 from easyagent.agent.base import BaseAgent
@@ -29,9 +30,14 @@ class ToolAgent(BaseAgent):
     def _format_tool_calls(self, tool_calls: list[ToolCall]) -> list[dict[str, Any]]:
         return _manager.format_tool_calls(tool_calls)
 
-    def _execute_tool(self, name: str, arguments: dict[str, Any]) -> str:
+    async def _execute_tool(self, name: str, arguments: dict[str, Any]) -> str:
         tool = _manager.get(name)
-        return tool.execute(**arguments) if tool else f"Tool '{name}' not found"
+        if not tool:
+            return f"Tool '{name}' not found"
+        # Support both sync and async execute
+        if iscoroutinefunction(tool.execute):
+            return await tool.execute(**arguments)
+        return tool.execute(**arguments)
 
     @abstractmethod
     async def run(self, user_input: str) -> str:
