@@ -6,14 +6,15 @@
 
 English | [简体中文](README_CN.md)
 
-A lightweight AI Agent framework built on LiteLLM, featuring multi-model support, tool calling, and intelligent memory management.
+A lightweight AI Agent framework built on LiteLLM, featuring multi-model support, tool calling, sandbox execution, and intelligent memory management.
 
-> **~809 lines of code, production-ready Agent capabilities** — Multi-model adapters, tool calling, smart memory, ReAct reasoning, DAG pipelines, debug tracing.
+> **~1200 lines of code, production-ready Agent capabilities** — Multi-model adapters, tool calling, sandbox isolation, smart memory, ReAct reasoning, DAG pipelines, debug tracing.
 
 ## Features
 
 - **Multi-Model Support** - Unified interface via LiteLLM for OpenAI, Anthropic, Gemini, and more
 - **Tool Calling** - Protocol-based tool definition with `@register_tool` decorator
+- **Sandbox Execution** - Isolated code execution in Docker or local environment
 - **Memory** - Sliding window + auto-summarization strategies for context management
 - **ReAct Loop** - Standard think → act → observe reasoning cycle
 - **DAG Pipeline** - Directed Acyclic Graph workflow orchestration with parallel execution
@@ -23,6 +24,19 @@ A lightweight AI Agent framework built on LiteLLM, featuring multi-model support
 
 ```bash
 pip install easy-agent-sdk
+```
+
+**With optional dependencies:**
+
+```bash
+# Docker sandbox support
+pip install easy-agent-sdk[sandbox]
+
+# Web tools (SerperSearch)
+pip install easy-agent-sdk[web]
+
+# All optional dependencies
+pip install easy-agent-sdk[all]
 ```
 
 **From source:**
@@ -48,6 +62,9 @@ models:
     api_type: openai
     base_url: https://api.openai.com/v1
     api_key: sk-xxx
+    kwargs:
+      max_tokens: 4096
+      temperature: 0.7
 ```
 
 Set environment variable:
@@ -83,8 +100,8 @@ class GetWeather:
 
 ```python
 import asyncio
-from easyagent.agent import ReactAgent
-from easyagent.config.base import ModelConfig
+from easyagent import ReactAgent
+from easyagent.config import ModelConfig
 from easyagent.model.litellm_model import LiteLLMModel
 
 config = ModelConfig.load()
@@ -101,6 +118,39 @@ result = asyncio.run(agent.run("What's the weather in Beijing?"))
 print(result)
 ```
 
+### 4. SandboxAgent (Code Execution)
+
+```python
+import asyncio
+from easyagent import SandboxAgent
+from easyagent.config import ModelConfig
+from easyagent.model.litellm_model import LiteLLMModel
+
+config = ModelConfig.load()
+model = LiteLLMModel(**config.get_model("gpt-4o"))
+
+# Local sandbox (for development)
+agent = SandboxAgent(model=model)
+
+# Docker sandbox (for production)
+agent = SandboxAgent(
+    model=model,
+    sandbox_type="docker",
+    image="python:3.12-slim",
+    cpu_limit=2.0,
+    memory_limit="1g",
+    network=True,
+)
+
+result = asyncio.run(agent.run("Write a fibonacci program and run it"))
+print(result)
+```
+
+**SandboxAgent** comes with built-in tools:
+- `bash` - Execute shell commands
+- `write_file` - Write files (handles complex content safely)
+- `read_file` - Read files
+
 ## Core Components
 
 ### Agent
@@ -109,6 +159,31 @@ print(result)
 |-------|-------------|
 | `ReactAgent` | ReAct loop: think → act → observe |
 | `ToolAgent` | Tool registration and execution |
+| `SandboxAgent` | ReactAgent with isolated code execution |
+
+### Sandbox
+
+```python
+from easyagent import DockerSandbox, LocalSandbox, create_sandbox
+
+# Factory function
+sandbox = create_sandbox("docker", image="python:3.12-slim")
+
+# Or direct instantiation
+sandbox = DockerSandbox(
+    image="python:3.12-slim",
+    memory_limit="512m",
+    cpu_limit=1.0,
+    network=True,
+)
+
+async with sandbox:
+    result = await sandbox.exec_command("python --version")
+    print(result.output)
+    
+    await sandbox.write_file("hello.py", "print('Hello!')")
+    result = await sandbox.exec_command("python hello.py")
+```
 
 ### Memory
 
@@ -152,30 +227,28 @@ pipeline = BasePipeline(root=fetch)
 ctx = asyncio.run(pipeline.run())
 ```
 
-### Debug
+### Built-in Tools
 
-```python
-from easyagent.debug.log import LogCollector, Logger
-
-log = Logger("MyApp")
-
-with LogCollector() as collector:
-    log.info("Step 1")
-    log.info("Step 2")
-
-print(collector.to_text())
-```
+| Tool | Description | Required |
+|------|-------------|----------|
+| `bash` | Execute shell commands in sandbox | SandboxAgent |
+| `write_file` | Write files to sandbox | SandboxAgent |
+| `read_file` | Read files from sandbox | SandboxAgent |
+| `serper_search` | Google search via Serper API | `SERPER_API_KEY` env |
 
 ## Project Structure
 
 ```
 easyagent/
-├── agent/          # ReactAgent, ToolAgent
+├── agent/          # ReactAgent, ToolAgent, SandboxAgent
 ├── model/          # LiteLLMModel, Message, ToolCall
 ├── memory/         # SlidingWindowMemory, SummaryMemory
 ├── tool/           # ToolManager, @register_tool
+│   ├── code/       # bash, write_file, read_file
+│   └── web/        # serper_search
+├── sandbox/        # DockerSandbox, LocalSandbox
 ├── pipeline/       # BaseNode, BasePipeline
-├── config/         # ModelConfig
+├── config/         # ModelConfig, AppConfig
 ├── prompt/         # Prompt templates
 └── debug/          # Logger, LogCollector
 ```

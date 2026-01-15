@@ -6,14 +6,15 @@
 
 [English](README.md) | 中文
 
-轻量级 AI Agent 框架，基于 LiteLLM 构建，支持多模型、工具调用和智能记忆管理。
+轻量级 AI Agent 框架，基于 LiteLLM 构建，支持多模型、工具调用、沙箱执行和智能记忆管理。
 
-> **~809 行代码，完整实现生产级 Agent 能力** — 多模型适配、工具调用、智能记忆、ReAct 推理、DAG 流水线、调试追踪。
+> **~1200 行代码，完整实现生产级 Agent 能力** — 多模型适配、工具调用、沙箱隔离、智能记忆、ReAct 推理、DAG 流水线、调试追踪。
 
 ## 特性
 
 - **多模型支持** - 通过 LiteLLM 统一接口，支持 OpenAI、Anthropic、Gemini 等
 - **工具调用** - 基于 Protocol 的工具定义，`@register_tool` 装饰器自动注册
+- **沙箱执行** - 支持 Docker 或本地环境的隔离代码执行
 - **记忆模块** - 滑动窗口 + 自动摘要两种策略，自动管理上下文长度
 - **ReAct 循环** - think → act → observe 标准推理循环
 - **DAG Pipeline** - 基于有向无环图的流水线编排，支持节点并行执行
@@ -23,6 +24,19 @@
 
 ```bash
 pip install easy-agent-sdk
+```
+
+**可选依赖：**
+
+```bash
+# Docker 沙箱支持
+pip install easy-agent-sdk[sandbox]
+
+# Web 工具（SerperSearch）
+pip install easy-agent-sdk[web]
+
+# 全部可选依赖
+pip install easy-agent-sdk[all]
 ```
 
 **从源码安装：**
@@ -48,6 +62,9 @@ models:
     api_type: openai
     base_url: https://api.openai.com/v1
     api_key: sk-xxx
+    kwargs:
+      max_tokens: 4096
+      temperature: 0.7
 ```
 
 设置环境变量：
@@ -83,8 +100,8 @@ class GetWeather:
 
 ```python
 import asyncio
-from easyagent.agent import ReactAgent
-from easyagent.config.base import ModelConfig
+from easyagent import ReactAgent
+from easyagent.config import ModelConfig
 from easyagent.model.litellm_model import LiteLLMModel
 
 config = ModelConfig.load()
@@ -101,6 +118,39 @@ result = asyncio.run(agent.run("北京天气怎么样？"))
 print(result)
 ```
 
+### 4. SandboxAgent（代码执行）
+
+```python
+import asyncio
+from easyagent import SandboxAgent
+from easyagent.config import ModelConfig
+from easyagent.model.litellm_model import LiteLLMModel
+
+config = ModelConfig.load()
+model = LiteLLMModel(**config.get_model("gpt-4o"))
+
+# 本地沙箱（开发用）
+agent = SandboxAgent(model=model)
+
+# Docker 沙箱（生产用）
+agent = SandboxAgent(
+    model=model,
+    sandbox_type="docker",
+    image="python:3.12-slim",
+    cpu_limit=2.0,
+    memory_limit="1g",
+    network=True,
+)
+
+result = asyncio.run(agent.run("写一个斐波那契数列程序并运行"))
+print(result)
+```
+
+**SandboxAgent** 内置工具：
+- `bash` - 执行 shell 命令
+- `write_file` - 写入文件（安全处理复杂内容）
+- `read_file` - 读取文件
+
 ## 核心组件
 
 ### Agent
@@ -109,6 +159,31 @@ print(result)
 |---|------|
 | `ReactAgent` | ReAct 循环：think → act → observe |
 | `ToolAgent` | 工具注册和执行 |
+| `SandboxAgent` | 带隔离代码执行的 ReactAgent |
+
+### Sandbox
+
+```python
+from easyagent import DockerSandbox, LocalSandbox, create_sandbox
+
+# 工厂函数
+sandbox = create_sandbox("docker", image="python:3.12-slim")
+
+# 或直接实例化
+sandbox = DockerSandbox(
+    image="python:3.12-slim",
+    memory_limit="512m",
+    cpu_limit=1.0,
+    network=True,
+)
+
+async with sandbox:
+    result = await sandbox.exec_command("python --version")
+    print(result.output)
+    
+    await sandbox.write_file("hello.py", "print('Hello!')")
+    result = await sandbox.exec_command("python hello.py")
+```
 
 ### Memory
 
@@ -152,30 +227,28 @@ pipeline = BasePipeline(root=fetch)
 ctx = asyncio.run(pipeline.run())
 ```
 
-### Debug
+### 内置工具
 
-```python
-from easyagent.debug.log import LogCollector, Logger
-
-log = Logger("MyApp")
-
-with LogCollector() as collector:
-    log.info("Step 1")
-    log.info("Step 2")
-
-print(collector.to_text())
-```
+| 工具 | 说明 | 依赖 |
+|------|------|------|
+| `bash` | 在沙箱中执行 shell 命令 | SandboxAgent |
+| `write_file` | 写入文件到沙箱 | SandboxAgent |
+| `read_file` | 从沙箱读取文件 | SandboxAgent |
+| `serper_search` | 通过 Serper API 进行 Google 搜索 | `SERPER_API_KEY` 环境变量 |
 
 ## 项目结构
 
 ```
 easyagent/
-├── agent/          # ReactAgent, ToolAgent
+├── agent/          # ReactAgent, ToolAgent, SandboxAgent
 ├── model/          # LiteLLMModel, Message, ToolCall
 ├── memory/         # SlidingWindowMemory, SummaryMemory
 ├── tool/           # ToolManager, @register_tool
+│   ├── code/       # bash, write_file, read_file
+│   └── web/        # serper_search
+├── sandbox/        # DockerSandbox, LocalSandbox
 ├── pipeline/       # BaseNode, BasePipeline
-├── config/         # ModelConfig
+├── config/         # ModelConfig, AppConfig
 ├── prompt/         # Prompt 模板
 └── debug/          # Logger, LogCollector
 ```
