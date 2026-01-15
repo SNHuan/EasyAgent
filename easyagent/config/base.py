@@ -81,6 +81,7 @@ class ModelConfig(BaseConfig):
             "model": model_name,
             "api_base": cfg.get("base_url"),
             "api_key": cfg.get("api_key"),
+            **(cfg.get("kwargs") or {}),
         }
 
 

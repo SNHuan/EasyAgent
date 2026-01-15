@@ -5,25 +5,43 @@ summary_model: gpt-4o-mini
 models:
   gpt-4o-mini:
     api_type: openai
-    base_url: 
-    api_key: 
-  gemini-2.5-flash:
+    base_url: https://api.openai.com/v1
+    api_key: sk-xxx
+
+  # OpenAI o1/o3 reasoning models
+  o3-mini:
     api_type: openai
-    base_url: 
-    api_key: 
+    base_url: https://api.openai.com/v1
+    api_key: sk-xxx
+    kwargs:
+      reasoning_effort: high        # none, minimal, low, medium, high, xhigh
+      max_completion_tokens: 8192
+
+  # Custom model with full config
+  gemini-3-flash-preview:
+    api_type: openai
+    base_url: https://your-proxy.com/v1
+    api_key: your-key
+    # cost: model metadata for litellm cost calculation
     cost:
       input_cost_per_token: 0.0000003
       output_cost_per_token: 0.00000252
-      max_tokens: 8192
+      max_tokens: 8192              # model's max capability
       max_input_tokens: 1048576
       max_output_tokens: 8192
-  gemini-3-pro-preview:
-    api_type: openai
-    base_url: 
-    api_key: 
-    cost:
-      input_cost_per_token: 0.00000125
-      output_cost_per_token: 0.00001
-      max_tokens: 65536
-      max_input_tokens: 1048576
-      max_output_tokens: 65536
+    # kwargs: API call parameters
+    kwargs:
+      temperature: 0.7
+      top_p: 0.9
+      max_tokens: 4096              # actual limit per request
+
+  # Claude with thinking
+  claude-sonnet-4.5:
+    api_type: anthropic
+    api_key: sk-ant-xxx
+    kwargs:
+      temperature: 1.0
+      max_tokens: 8192
+      # thinking:                   # Anthropic extended thinking
+      #   type: enabled
+      #   budget_tokens: 5000
