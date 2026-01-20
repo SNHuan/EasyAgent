@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "easy-agent-sdk"
-version = "0.1.3"
+version = "0.1.4"
 description = "A lightweight AI Agent framework built on LiteLLM with ReAct reasoning, tool calling, and smart memory."
 readme = "README.md"
 license = {text = "MIT"}
