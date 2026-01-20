@@ -100,12 +100,9 @@ class GetWeather:
 
 ```python
 import asyncio
-from easyagent import ReactAgent
-from easyagent.config import ModelConfig
-from easyagent.model.litellm_model import LiteLLMModel
+from easyagent import ReactAgentfrom easyagent.model.litellm_model import LiteLLMModel
 
-config = ModelConfig.load()
-model = LiteLLMModel(**config.get_model("gpt-4o-mini"))
+model = LiteLLMModel(model="gpt-4o-mini")
 
 agent = ReactAgent(
     model=model,
@@ -123,11 +120,9 @@ print(result)
 ```python
 import asyncio
 from easyagent import SandboxAgent
-from easyagent.config import ModelConfig
 from easyagent.model.litellm_model import LiteLLMModel
 
-config = ModelConfig.load()
-model = LiteLLMModel(**config.get_model("gpt-4o"))
+model = LiteLLMModel(model="gpt-4o")
 
 # Local sandbox (for development)
 agent = SandboxAgent(model=model)
