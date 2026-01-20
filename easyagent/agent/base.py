@@ -42,7 +42,7 @@ class BaseAgent(ABC):
         if self._system_prompt:
             msgs.append({"role": "system", "content": self._system_prompt})
         for m in self._memory.get_messages():
-            msgs.append(m.model_dump(exclude_none=True))
+            msgs.append(m.to_api_dict())
         return msgs
 
     @abstractmethod

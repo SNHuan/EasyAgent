@@ -37,6 +37,7 @@ def content_to_text(content: Any) -> str:
 class Message(BaseModel):
     role: Literal["system", "user", "assistant", "tool"]
     content: Any
+    reasoning_content: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
     tool_call_id: str | None = None
 
@@ -49,8 +50,23 @@ class Message(BaseModel):
         return cls(role="user", content=content)
 
     @classmethod
-    def assistant(cls, content: Any, tool_calls: list[dict[str, Any]] | None = None) -> "Message":
-        return cls(role="assistant", content=content, tool_calls=tool_calls)
+    def assistant(
+        cls,
+        content: Any,
+        tool_calls: list[dict[str, Any]] | None = None,
+        reasoning_content: str | None = None,
+    ) -> "Message":
+        return cls(role="assistant", content=content, tool_calls=tool_calls, reasoning_content=reasoning_content)
+
+    @classmethod
+    def from_response(cls, response: "LLMResponse") -> "Message":
+        """从 LLMResponse 创建 assistant Message，保留完整信息。"""
+        return cls(
+            role="assistant",
+            content=response.content,
+            reasoning_content=response.reasoning_content,
+            tool_calls=[tc.model_dump() for tc in response.tool_calls] if response.tool_calls else None,
+        )
 
     @classmethod
     def tool(cls, content: Any, tool_call_id: str) -> "Message":
@@ -58,6 +74,20 @@ class Message(BaseModel):
 
     def text(self) -> str:
         return content_to_text(self.content)
+
+    def to_api_dict(self) -> dict[str, Any]:
+        """渲染为 LLM API 所需的 dict 格式，将 reasoning_content 合并到 content。"""
+        content = self.content
+        # 对于 assistant 消息，将 reasoning_content 合并到 content
+        if self.role == "assistant" and self.reasoning_content:
+            content = f"<think>{self.reasoning_content}</think>\n{content}"
+        
+        result: dict[str, Any] = {"role": self.role, "content": content}
+        if self.tool_calls:
+            result["tool_calls"] = self.tool_calls
+        if self.tool_call_id:
+            result["tool_call_id"] = self.tool_call_id
+        return result
 
 
 class ToolCall(BaseModel):
