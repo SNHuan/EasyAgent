@@ -7,7 +7,7 @@ import litellm
 # Suppress Pydantic serialization warnings from litellm
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
-from easyagent.config.base import is_debug
+from easyagent.config.base import ModelConfig, is_debug
 from easyagent.debug.log import Color, Logger
 from easyagent.model.base import BaseLLM
 from easyagent.model.schema import LLMResponse, ToolCall
@@ -17,8 +17,17 @@ _log = Logger("LiteLLM")
 
 class LiteLLMModel(BaseLLM):
     def __init__(self, model: str, **kwargs):
-        self._model = model
-        self._kwargs = kwargs
+        model_cfg = self._load_model_config(model)
+        self._model = model_cfg.pop("model")
+        self._kwargs = {**model_cfg, **kwargs}
+
+    @staticmethod
+    def _load_model_config(model: str) -> dict[str, Any]:
+        try:
+            return ModelConfig.load().get_model(model)
+        except (FileNotFoundError, KeyError):
+            # config 不存在或模型未配置，直接使用原始模型名
+            return {"model": model}
 
     async def call(
         self,
