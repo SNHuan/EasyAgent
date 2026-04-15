@@ -100,7 +100,8 @@ class GetWeather:
 
 ```python
 import asyncio
-from easyagent import ReactAgentfrom easyagent.model.litellm_model import LiteLLMModel
+from easyagent import ReactAgent
+from easyagent.model.litellm_model import LiteLLMModel
 
 model = LiteLLMModel(model="gpt-4o-mini")
 
