@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -15,27 +13,24 @@ class LocalSandbox:
     """Sandbox using local shell (no isolation, for development only)."""
 
     def __init__(self, workdir: str | None = None) -> None:
-        self._workdir = workdir
-        self._temp_dir: tempfile.TemporaryDirectory | None = None
+        self._workdir = str(Path(workdir).resolve()) if workdir else None
+        self._owns_default_workdir = workdir is None
 
     @property
     def workdir(self) -> str:
         if self._workdir:
             return self._workdir
-        if self._temp_dir:
-            return self._temp_dir.name
         raise RuntimeError("Sandbox not started")
 
     async def start(self) -> None:
-        """Create temp directory if no workdir specified."""
+        """Create the default workspace directory if no workdir was provided."""
         if not self._workdir:
-            self._temp_dir = tempfile.TemporaryDirectory(prefix="easyagent_sandbox_")
+            self._workdir = str((Path.cwd() / "agent_workspace").resolve())
+        Path(self._workdir).mkdir(parents=True, exist_ok=True)
 
     async def stop(self) -> None:
-        """Cleanup temp directory."""
-        if self._temp_dir:
-            self._temp_dir.cleanup()
-            self._temp_dir = None
+        """Local sandbox keeps its workspace directory for inspection."""
+        return None
 
     async def exec_command(self, command: str, timeout: int = 30) -> ExecResult:
         """Execute command locally."""

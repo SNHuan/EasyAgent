@@ -1,62 +1,73 @@
-import asyncio
+import pytest
 
-from easyagent.agent.react_agent import ReactAgent
-from easyagent.tool import register_tool
-from easyagent.config.base import ModelConfig
-from easyagent.model.litellm_model import LiteLLMModel
-from easyagent.memory.summary import SummaryMemory
-
-
-@register_tool
-class GetWeather:
-    name = "get_weather"
-    type = "function"
-    description = "Get the weather for a city."
-    parameters = {
-        "type": "object",
-        "properties": {"city": {"type": "string", "description": "City name"}},
-        "required": ["city"],
-    }
-
-    def init(self) -> None:
-        pass
-
-    def execute(self, city: str) -> str:
-        return f"The weather in {city} is sunny, 25°C."
+from easyagent import ReactAgent, SlidingWindowContext
+from easyagent.memory import InMemoryMemory
+from easyagent.model.schema import LLMResponse, ToolCall
+from easyagent.tool import ToolManager, register_tool
 
 
-@register_tool
-class Calculate:
-    name = "calculate"
-    type = "function"
-    description = "Calculate a math expression."
-    parameters = {
-        "type": "object",
-        "properties": {"expression": {"type": "string", "description": "Math expression"}},
-        "required": ["expression"],
-    }
+class FakeLLM:
+    def __init__(self, responses):
+        self._responses = list(responses)
 
-    def init(self) -> None:
-        pass
+    async def call(self, *args, **kwargs):
+        raise NotImplementedError
 
-    def execute(self, expression: str) -> str:
-        return str(eval(expression))
+    async def call_with_history(self, messages, **kwargs):
+        if not self._responses:
+            raise AssertionError("No more scripted responses")
+        return self._responses.pop(0)
 
 
-async def main():
-    config = ModelConfig.load()
-    model = LiteLLMModel(**config.get_model("gemini-2.5-flash"))
+@pytest.fixture(autouse=True)
+def reset_tools():
+    ToolManager().reset()
+    yield
 
 
-    agent_with_tools = ReactAgent(
-        model=model,
-        tools=["get_weather", "calculate"],
-        system_prompt="You are a helpful assistant. Use tools when needed.",
-        memory=SummaryMemory(task_id="test_1", reserve_ratio=0.3),
+@pytest.mark.asyncio
+async def test_react_agent_runs_tool_loop():
+    @register_tool
+    class EchoTool:
+        name = "echo_tool"
+        type = "function"
+        description = "Echo a string."
+        parameters = {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        }
+
+        def init(self) -> None:
+            pass
+
+        def execute(self, text: str, **kwargs) -> str:
+            return f"echo:{text}"
+
+    llm = FakeLLM(
+        [
+            LLMResponse(
+                content="Calling tool",
+                tool_calls=[
+                    ToolCall(
+                        id="call_1",
+                        type="function",
+                        name="echo_tool",
+                        arguments={"text": "hi"},
+                    )
+                ],
+            ),
+            LLMResponse(content="done <<REACT_COMPLETE>>"),
+        ]
     )
-    result = await agent_with_tools.run("What's the weather in Beijing?")
 
+    agent = ReactAgent(
+        model=llm,
+        tools=["echo_tool"],
+        memory=InMemoryMemory(),
+        context=SlidingWindowContext(max_messages=10),
+    )
+    result = await agent.run("hello")
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    assert result == "done"
 

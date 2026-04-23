@@ -1,28 +1,61 @@
-import asyncio
+from pathlib import Path
+
+import pytest
 
 from easyagent import SandboxAgent
-from easyagent.config import ModelConfig
-from easyagent.model.litellm_model import LiteLLMModel
+from easyagent.model.schema import LLMResponse, ToolCall
+from easyagent.sandbox.local import LocalSandbox
 
 
-async def main():
-    config = ModelConfig.load()
-    model = LiteLLMModel(**config.get_model("gemini-3-flash-preview"))
+class FakeLLM:
+    def __init__(self, responses):
+        self._responses = list(responses)
 
-    # 方式3: 使用 docker sandbox
-    agent = SandboxAgent(
-        model=model,
-        sandbox={
-            "type": "docker",
-            "image": "python:3.12-slim",
-            "memory_limit": "512m",
-            "network": True,  # 是否允许网络访问
-        },
+    async def call(self, *args, **kwargs):
+        raise NotImplementedError
+
+    async def call_with_history(self, messages, **kwargs):
+        if not self._responses:
+            raise AssertionError("No more scripted responses")
+        return self._responses.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_sandbox_agent_runs_bash_tool():
+    llm = FakeLLM(
+        [
+            LLMResponse(
+                content="Use bash",
+                tool_calls=[
+                    ToolCall(
+                        id="call_1",
+                        type="function",
+                        name="bash",
+                        arguments={"command": "python -c \"print('ok')\""},
+                    )
+                ],
+            ),
+            LLMResponse(content="done <<REACT_COMPLETE>>"),
+        ]
     )
 
-    result = await agent.run("写一个计算斐波那契数列的程序并运行")
-    print(result)
+    agent = SandboxAgent(
+        model=llm,
+        sandbox=LocalSandbox(),
+    )
+    result = await agent.run("run a command")
+
+    assert result == "done"
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+@pytest.mark.asyncio
+async def test_local_sandbox_default_workdir_is_timestamp_workspace(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    sandbox = LocalSandbox()
+
+    await sandbox.start()
+    workdir = sandbox.workdir
+
+    assert workdir.startswith(str(tmp_path))
+    assert workdir.endswith("_workspace")
+    assert Path(workdir).is_dir()

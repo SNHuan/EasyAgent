@@ -87,4 +87,8 @@ class ModelConfig(BaseConfig):
 
 def is_debug() -> bool:
     """Shortcut: check if debug mode is enabled"""
+    for env_name in ("EA_DEBUG", "DEBUG", "debug"):
+        value = os.getenv(env_name)
+        if value is not None:
+            return value.strip().lower() in {"1", "true", "yes", "on"}
     return AppConfig.get().debug

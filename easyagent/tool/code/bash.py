@@ -3,7 +3,6 @@
 from typing import Any
 
 from easyagent.tool.manager import register_tool
-from easyagent.sandbox import get_sandbox
 
 
 @register_tool
@@ -35,9 +34,16 @@ class Bash:
     def init(self) -> None:
         pass
 
-    async def execute(self, command: str, timeout: int = 30, **kwargs: Any) -> str:
+    async def execute(
+        self,
+        command: str,
+        timeout: int = 30,
+        *,
+        session: Any | None = None,
+        **kwargs: Any,
+    ) -> str:
         """Execute bash command."""
-        sandbox = get_sandbox()
+        sandbox = None if session is None else session.resources.get("sandbox")
         if sandbox is None:
             return "Error: No sandbox configured. Please set up a sandbox first."
 

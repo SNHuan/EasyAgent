@@ -3,7 +3,6 @@
 from typing import Any
 
 from easyagent.tool.manager import register_tool
-from easyagent.sandbox import get_sandbox
 
 
 @register_tool
@@ -35,9 +34,16 @@ class WriteFile:
     def init(self) -> None:
         pass
 
-    async def execute(self, path: str, content: str, **kwargs: Any) -> str:
+    async def execute(
+        self,
+        path: str,
+        content: str,
+        *,
+        session: Any | None = None,
+        **kwargs: Any,
+    ) -> str:
         """Write content to file."""
-        sandbox = get_sandbox()
+        sandbox = None if session is None else session.resources.get("sandbox")
         if sandbox is None:
             return "Error: No sandbox configured. Please set up a sandbox first."
 
@@ -69,9 +75,15 @@ class ReadFile:
     def init(self) -> None:
         pass
 
-    async def execute(self, path: str, **kwargs: Any) -> str:
+    async def execute(
+        self,
+        path: str,
+        *,
+        session: Any | None = None,
+        **kwargs: Any,
+    ) -> str:
         """Read content from file."""
-        sandbox = get_sandbox()
+        sandbox = None if session is None else session.resources.get("sandbox")
         if sandbox is None:
             return "Error: No sandbox configured. Please set up a sandbox first."
 

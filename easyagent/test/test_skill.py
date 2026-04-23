@@ -181,8 +181,10 @@ def test_react_agent_no_skills_keeps_prompt_unchanged(tmp_path):
     from easyagent import ReactAgent
 
     agent = ReactAgent(model=FakeLLM([]))
-    assert "Available Skills" not in agent._system_prompt
-    assert "load_skill" not in agent._tool_names
+    session = agent.create_session()
+    assert "Available Skills" not in agent.build_system_prompt(session)
+    tool_names = [schema["function"]["name"] for schema in agent.get_tool_schemas(session)]
+    assert "load_skill" not in tool_names
 
 
 def test_react_agent_injects_skills_section(tmp_path):
@@ -190,10 +192,13 @@ def test_react_agent_injects_skills_section(tmp_path):
 
     _write_skill(tmp_path, "demo", tools=["get_weather"])
     agent = ReactAgent(model=FakeLLM([]), skills=["demo"], skill_dir=tmp_path)
+    session = agent.create_session()
 
-    assert "## Available Skills" in agent._system_prompt
-    assert "demo" in agent._system_prompt
-    assert "load_skill" in agent._tool_names
+    system_prompt = agent.build_system_prompt(session)
+    assert "## Available Skills" in system_prompt
+    assert "demo" in system_prompt
+    tool_names = [schema["function"]["name"] for schema in agent.get_tool_schemas(session)]
+    assert "load_skill" in tool_names
 
 
 def test_react_agent_unknown_skill_does_not_raise(tmp_path, caplog):
@@ -202,9 +207,11 @@ def test_react_agent_unknown_skill_does_not_raise(tmp_path, caplog):
     agent = ReactAgent(
         model=FakeLLM([]), skills=["nope"], skill_dir=tmp_path
     )
+    session = agent.create_session()
     # No skills found → no section, no load_skill tool
-    assert "Available Skills" not in agent._system_prompt
-    assert "load_skill" not in agent._tool_names
+    assert "Available Skills" not in agent.build_system_prompt(session)
+    tool_names = [schema["function"]["name"] for schema in agent.get_tool_schemas(session)]
+    assert "load_skill" in tool_names
 
 
 # -------- Full loop: load_skill activates declared tools --------
@@ -213,7 +220,7 @@ def test_react_agent_unknown_skill_does_not_raise(tmp_path, caplog):
 async def test_load_skill_activates_declared_tools(tmp_path):
     """End-to-end: LLM calls load_skill, then produces a final answer.
 
-    Verifies the skill's declared tool gets appended to agent._tool_names.
+    Verifies the skill's declared tool gets appended to session.enabled_tools.
     """
     from easyagent import ReactAgent
     from easyagent.prompt.react import REACT_END_TOKEN
@@ -251,11 +258,12 @@ async def test_load_skill_activates_declared_tools(tmp_path):
         skill_dir=tmp_path,
         max_iterations=5,
     )
-    assert "dummy_echo" not in agent._tool_names  # not active yet
+    session = agent.create_session()
+    assert "dummy_echo" not in session.enabled_tools  # not active yet
 
-    result = await agent.run("test")
+    result = await agent.run("test", session=session)
     assert "All done." in result
-    assert "dummy_echo" in agent._tool_names  # activated by load_skill
+    assert "dummy_echo" in session.enabled_tools  # activated by load_skill
 
 
 @pytest.mark.asyncio
@@ -280,8 +288,9 @@ async def test_load_skill_unknown_tool_graceful(tmp_path):
         skills=["demo"],
         skill_dir=tmp_path,
     )
-    result = await agent.run("x")
+    session = agent.create_session()
+    result = await agent.run("x", session=session)
     assert "done" in result
     # Check that the tool result (in history) contains the warning text
-    tool_msgs = [m for m in agent.history if m.role == "tool"]
+    tool_msgs = [m for m in session.get_all_messages() if m.role == "tool"]
     assert any("Warning" in m.text() for m in tool_msgs)
