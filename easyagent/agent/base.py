@@ -1,50 +1,50 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import Any
 
-from easyagent.config.base import is_debug
-from easyagent.debug.log import Logger
-from easyagent.memory.base import BaseMemory
-from easyagent.memory.sliding_window import SlidingWindowMemory
+from easyagent.agent.session import AgentSession
 from easyagent.model.base import BaseLLM
-from easyagent.model.schema import Message
 
 
 class BaseAgent(ABC):
-    """Base Agent: holds model, system_prompt, maintains context history"""
-
     def __init__(
         self,
-        model: BaseLLM,
+        default_model: BaseLLM,
         system_prompt: str = "",
-        memory: BaseMemory | None = None,
     ):
-        self._model = model
+        self._default_model = default_model
         self._system_prompt = system_prompt
-        self._memory = memory or SlidingWindowMemory()
-        self._log = Logger(self.__class__.__name__)
 
     @property
-    def _debug(self) -> bool:
-        return is_debug()
+    def default_model(self) -> BaseLLM:
+        return self._default_model
 
     @property
-    def history(self) -> list[Message]:
-        return self._memory.get_messages()
-
-    def add_message(self, message: Message) -> None:
-        self._memory.add(message)
-
-    def clear_history(self) -> None:
-        self._memory.clear()
-
-    def _build_messages(self) -> list[dict[str, Any]]:
-        msgs: list[dict[str, Any]] = []
-        if self._system_prompt:
-            msgs.append({"role": "system", "content": self._system_prompt})
-        for m in self._memory.get_messages():
-            msgs.append(m.to_api_dict())
-        return msgs
+    def system_prompt(self) -> str:
+        return self._system_prompt
 
     @abstractmethod
-    async def run(self, user_input: str) -> str:
+    def create_session(self, **kwargs: Any) -> AgentSession:
+        pass
+
+    @abstractmethod
+    async def run(self, user_input: Any, *, session: AgentSession | None = None) -> str:
+        pass
+
+    @abstractmethod
+    def build_system_prompt(self, session: AgentSession) -> str:
+        pass
+
+    @abstractmethod
+    def get_tool_schemas(self, session: AgentSession) -> list[dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    async def execute_tool_call(
+        self,
+        session: AgentSession,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> str:
         pass

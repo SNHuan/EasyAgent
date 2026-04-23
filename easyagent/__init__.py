@@ -1,39 +1,39 @@
-"""EasyAgent - A lightweight AI Agent framework built on LiteLLM."""
+"""EasyAgent - an incrementally designed agent system."""
 
-from easyagent.agent import ReactAgent, ToolAgent, SandboxAgent
-from easyagent.memory import BaseMemory, SlidingWindowMemory, SummaryMemory
-from easyagent.tool import Tool, ToolManager, register_tool
-from easyagent.skill import Skill, SkillManager, register_skill
-from easyagent.sandbox import (
-    BaseSandbox,
-    ExecResult,
-    DockerSandbox,
-    LocalSandbox,
-    create_sandbox,
-)
+from easyagent.agent import Agent, AgentSession, AgentStatus, BaseAgent, ReactAgent, SandboxAgent
+from easyagent.capability import BaseCapability, SandboxCapability, SkillCapability, ToolCapability
+from easyagent.context import BaseContext, FullContext, SlidingWindowContext, SummaryContext
+from easyagent.loop import BaseLoop, ReActLoop, SingleTurnLoop
+from easyagent.memory import BaseMemory, InMemoryMemory
+from easyagent.model.base import BaseLLM
+from easyagent.model.litellm_model import LiteLLMModel
+from easyagent.model.schema import LLMResponse, Message, ToolCall
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
+
 __all__ = [
-    # Agent
+    "Agent",
+    "AgentSession",
+    "AgentStatus",
+    "BaseAgent",
     "ReactAgent",
-    "ToolAgent",
     "SandboxAgent",
-    # Memory
+    "BaseCapability",
+    "SandboxCapability",
+    "SkillCapability",
+    "ToolCapability",
+    "BaseContext",
+    "FullContext",
+    "SlidingWindowContext",
+    "SummaryContext",
+    "BaseLoop",
+    "ReActLoop",
+    "SingleTurnLoop",
     "BaseMemory",
-    "SlidingWindowMemory",
-    "SummaryMemory",
-    # Tool
-    "Tool",
-    "ToolManager",
-    "register_tool",
-    # Skill
-    "Skill",
-    "SkillManager",
-    "register_skill",
-    # Sandbox
-    "BaseSandbox",
-    "ExecResult",
-    "DockerSandbox",
-    "LocalSandbox",
-    "create_sandbox",
+    "InMemoryMemory",
+    "BaseLLM",
+    "LiteLLMModel",
+    "LLMResponse",
+    "Message",
+    "ToolCall",
 ]

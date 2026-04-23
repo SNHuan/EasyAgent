@@ -1,29 +1,23 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 
 from easyagent.model.schema import Message
 
 
 class BaseMemory(ABC):
-    """Abstract base class for Memory: manages conversation history"""
-
     @abstractmethod
     def add(self, message: Message) -> None:
-        """Add a message"""
-        ...
+        pass
 
     @abstractmethod
-    def get_messages(self) -> list[Message]:
-        """Get current valid message list"""
-        ...
+    def get_all(self) -> list[Message]:
+        pass
 
     @abstractmethod
     def clear(self) -> None:
-        """Clear history"""
-        ...
+        pass
 
-    @property
     @abstractmethod
-    def token_count(self) -> int:
-        """Current total token count"""
-        ...
-
+    def clone(self) -> "BaseMemory":
+        pass
