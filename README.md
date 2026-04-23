@@ -231,6 +231,48 @@ ctx = asyncio.run(pipeline.run())
 | `write_file` | Write files to sandbox | SandboxAgent |
 | `read_file` | Read files from sandbox | SandboxAgent |
 | `serper_search` | Google search via Serper API | `SERPER_API_KEY` env |
+| `load_skill` | Load a skill's body and activate its declared tools | auto, when `skills=[...]` |
+
+## Skills
+
+Skills are on-demand **capability packages** (markdown instructions + optional tool whitelist) that the agent loads only when it decides they are relevant. This keeps the base system prompt small while giving the agent access to specialized procedures.
+
+### Layout
+
+```
+./skills/
+  my-skill/
+    SKILL.md
+```
+
+### SKILL.md
+
+```markdown
+---
+name: my-skill
+description: One-line summary shown to the LLM before loading.
+allowed-tools:
+  - some_registered_tool
+---
+
+# Full instructions here (only loaded after `load_skill` is called)
+```
+
+### Usage
+
+```python
+from easyagent import ReactAgent
+
+agent = ReactAgent(
+    model=...,
+    skills=["my-skill"],
+    skill_dir="./skills",   # optional; defaults to $EA_SKILLS_DIR or ./skills
+)
+```
+
+The agent sees only each skill's `name` and `description` in its system prompt. When the LLM decides a skill is relevant, it calls the built-in `load_skill` tool — the full body is returned as a tool result and any declared tools are activated.
+
+**Progressive disclosure** keeps the default context footprint small; body content is only read from disk (and billed in tokens) when actually needed.
 
 ## Project Structure
 
@@ -241,7 +283,9 @@ easyagent/
 ├── memory/         # SlidingWindowMemory, SummaryMemory
 ├── tool/           # ToolManager, @register_tool
 │   ├── code/       # bash, write_file, read_file
+│   ├── skill/      # load_skill
 │   └── web/        # serper_search
+├── skill/          # SkillManager, Skill, SKILL.md loader
 ├── sandbox/        # DockerSandbox, LocalSandbox
 ├── pipeline/       # BaseNode, BasePipeline
 ├── config/         # ModelConfig, AppConfig

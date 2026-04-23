@@ -231,6 +231,48 @@ ctx = asyncio.run(pipeline.run())
 | `write_file` | 写入文件到沙箱 | SandboxAgent |
 | `read_file` | 从沙箱读取文件 | SandboxAgent |
 | `serper_search` | 通过 Serper API 进行 Google 搜索 | `SERPER_API_KEY` 环境变量 |
+| `load_skill` | 加载 skill 正文并激活其声明的工具 | 自动,`skills=[...]` 时启用 |
+
+## Skills
+
+Skills 是**按需加载的能力包**(markdown 指令 + 可选的工具白名单),只有当 agent 判断相关时才会加载。这样可以让基础 system prompt 保持精简,同时让 agent 能接入专用流程。
+
+### 目录结构
+
+```
+./skills/
+  my-skill/
+    SKILL.md
+```
+
+### SKILL.md 格式
+
+```markdown
+---
+name: my-skill
+description: LLM 在加载前看到的一句话说明
+allowed-tools:
+  - some_registered_tool
+---
+
+# 完整指令正文(只有 LLM 调用 `load_skill` 后才会注入对话)
+```
+
+### 用法
+
+```python
+from easyagent import ReactAgent
+
+agent = ReactAgent(
+    model=...,
+    skills=["my-skill"],
+    skill_dir="./skills",   # 可选;默认读 $EA_SKILLS_DIR 或 ./skills
+)
+```
+
+Agent 的 system prompt 中只出现 skill 的 `name` 和 `description`。LLM 判断需要某个 skill 时,会调用内置的 `load_skill` 工具——此时完整正文会作为 tool result 返回,声明的工具也会被激活。
+
+**渐进式披露**保证默认上下文体积最小;正文只在真正需要时才从磁盘读取并计入 token。
 
 ## 项目结构
 
@@ -241,7 +283,9 @@ easyagent/
 ├── memory/         # SlidingWindowMemory, SummaryMemory
 ├── tool/           # ToolManager, @register_tool
 │   ├── code/       # bash, write_file, read_file
+│   ├── skill/      # load_skill
 │   └── web/        # serper_search
+├── skill/          # SkillManager, Skill, SKILL.md 加载器
 ├── sandbox/        # DockerSandbox, LocalSandbox
 ├── pipeline/       # BaseNode, BasePipeline
 ├── config/         # ModelConfig, AppConfig
