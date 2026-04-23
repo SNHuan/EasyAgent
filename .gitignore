@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 
 /easyagent/config/config.yaml
+/easyagent/test/_smoke_skills/
 *.egg-info
 workspace/
 .env

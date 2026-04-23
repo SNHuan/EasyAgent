@@ -3,6 +3,7 @@
 from easyagent.agent import ReactAgent, ToolAgent, SandboxAgent
 from easyagent.memory import BaseMemory, SlidingWindowMemory, SummaryMemory
 from easyagent.tool import Tool, ToolManager, register_tool
+from easyagent.skill import Skill, SkillManager, register_skill
 from easyagent.sandbox import (
     BaseSandbox,
     ExecResult,
@@ -25,6 +26,10 @@ __all__ = [
     "Tool",
     "ToolManager",
     "register_tool",
+    # Skill
+    "Skill",
+    "SkillManager",
+    "register_skill",
     # Sandbox
     "BaseSandbox",
     "ExecResult",

@@ -65,7 +65,7 @@ include = ["easyagent", "easyagent.*"]
 exclude = ["tests*", "test*"]
 
 [tool.setuptools.package-data]
-easyagent = ["*.yaml", "py.typed"]
+easyagent = ["*.yaml", "py.typed", "skill/examples/**/*.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

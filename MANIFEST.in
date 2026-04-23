@@ -3,4 +3,5 @@ include README.md
 include README_CN.md
 include requirements.txt
 recursive-include easyagent *.yaml
+recursive-include easyagent *.md
 recursive-include easyagent py.typed
