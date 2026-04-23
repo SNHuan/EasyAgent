@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "easy-agent-sdk"
-version = "0.1.4"
-description = "A lightweight AI Agent framework built on LiteLLM with ReAct reasoning, tool calling, and smart memory."
+version = "0.2.0"
+description = "A lightweight agent system built on LiteLLM with loop, memory/context, capability, tool, skill, and sandbox abstractions."
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -62,7 +62,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = ["easyagent", "easyagent.*"]
-exclude = ["tests*", "test*"]
+exclude = ["tests*", "test*", "easyagent.test", "easyagent.test.*"]
 
 [tool.setuptools.package-data]
 easyagent = ["*.yaml", "py.typed", "skill/examples/**/*.md"]
