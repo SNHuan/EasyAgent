@@ -7,7 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.4] - 2026-01-20
 
-### Added
+### Changed
+
+- Rebuilt the core runtime around `AgentSession`, `BaseLoop`, `BaseMemory`, and `BaseContext`
+- Split memory storage from model-facing context assembly
+- Replaced feature-stacked agent internals with capability composition
+- Reworked `ReactAgent` and `SandboxAgent` into thin presets over the new architecture
+- Removed ContextVar-based skill/sandbox runtime access from the main execution path
+- Added `InMemoryMemory`, `FullContext`, `SlidingWindowContext`, and `SummaryContext`
+- Added `ToolCapability`, `SkillCapability`, and `SandboxCapability`
+- Updated tests to validate the new session-based runtime model
+
+### Fixed
+
+- Synchronized top-level exports with the actual runtime architecture
+- Fixed pytest configuration to point at the in-repo test suite
+
+### Documentation
+
+- Rewrote `README.md` and `README_CN.md` to match the new architecture
+- Added runnable example `examples/simple_react_agent.py`
+
+### Previous 0.1.4 Notes
 
 - **`Message.reasoning_content` 字段**: `Message` 模型新增 `reasoning_content` 可选字段，用于存储 LLM 的推理/思考内容（如 Claude 的 `<think>` 块）。这使得 agent 的 memory 能够完整保留模型输出的所有信息。
 

@@ -9,3 +9,5 @@ __pycache__/
 *.egg-info
 workspace/
 .env
+/agent_workspace
+/.vscode

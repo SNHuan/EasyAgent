@@ -6,19 +6,39 @@
 
 English | [简体中文](README_CN.md)
 
-A lightweight AI Agent framework built on LiteLLM, featuring multi-model support, tool calling, sandbox execution, and intelligent memory management.
+EasyAgent is a lightweight agent system built around a small set of core abstractions:
 
-> **~1200 lines of code, production-ready Agent capabilities** — Multi-model adapters, tool calling, sandbox isolation, smart memory, ReAct reasoning, DAG pipelines, debug tracing.
+- `BaseLLM` for model access
+- `BaseLoop` for execution strategy
+- `BaseMemory` for full conversation history
+- `BaseContext` for model-facing context assembly
+- `BaseCapability` for optional features such as tools, skills, and sandbox resources
+
+The project is intentionally incremental: each layer is usable on its own, and higher-level features are built directly on top of lower-level ones.
+
+## Current Architecture
+
+```text
+LLM -> Loop -> Memory / Context -> Capability -> Agent
+```
+
+Core ideas:
+
+- `Agent` is a thin orchestrator
+- `AgentSession` owns run-time state
+- `Memory` stores full history
+- `Context` decides what the model sees
+- `Capability` adds optional behavior without creating more agent subclasses
 
 ## Features
 
-- **Multi-Model Support** - Unified interface via LiteLLM for OpenAI, Anthropic, Gemini, and more
-- **Tool Calling** - Protocol-based tool definition with `@register_tool` decorator
-- **Sandbox Execution** - Isolated code execution in Docker or local environment
-- **Memory** - Sliding window + auto-summarization strategies for context management
-- **ReAct Loop** - Standard think → act → observe reasoning cycle
-- **DAG Pipeline** - Directed Acyclic Graph workflow orchestration with parallel execution
-- **Debug Friendly** - Colored logging, token usage and cost tracking
+- Multi-model support through LiteLLM
+- ReAct and single-turn loop abstractions
+- Memory / context split
+- Tool calling via `ToolManager`
+- Skills with progressive disclosure
+- Sandbox support through capability composition
+- Local and Docker sandbox implementations
 
 ## Installation
 
@@ -26,20 +46,15 @@ A lightweight AI Agent framework built on LiteLLM, featuring multi-model support
 pip install easy-agent-sdk
 ```
 
-**With optional dependencies:**
+Optional extras:
 
 ```bash
-# Docker sandbox support
 pip install easy-agent-sdk[sandbox]
-
-# Web tools (SerperSearch)
 pip install easy-agent-sdk[web]
-
-# All optional dependencies
 pip install easy-agent-sdk[all]
 ```
 
-**From source:**
+From source:
 
 ```bash
 git clone https://github.com/SNHuan/EasyAgent.git
@@ -47,15 +62,12 @@ cd EasyAgent
 pip install -e ".[dev]"
 ```
 
-## Quick Start
+## Configuration
 
-### 1. Configuration
-
-Create a config file `config.yaml`:
+Create a config file such as `config.yaml`:
 
 ```yaml
 debug: true
-summary_model: gpt-4o-mini
 
 models:
   gpt-4o-mini:
@@ -63,235 +75,186 @@ models:
     base_url: https://api.openai.com/v1
     api_key: sk-xxx
     kwargs:
-      max_tokens: 4096
       temperature: 0.7
+      max_tokens: 4096
 ```
 
-Set environment variable:
+Then point `EA_DEFAULT_CONFIG` to it:
 
 ```bash
 export EA_DEFAULT_CONFIG=/path/to/config.yaml
 ```
 
-### 2. Define Tools
+## Quick Start
+
+Minimal `ReactAgent`:
+
+```python
+import asyncio
+
+from easyagent import InMemoryMemory, LiteLLMModel, ReactAgent, SlidingWindowContext
+
+
+async def main() -> None:
+    model = LiteLLMModel(model="gpt-4o-mini")
+    agent = ReactAgent(
+        model=model,
+        system_prompt="You are a concise assistant.",
+        memory=InMemoryMemory(),
+        context=SlidingWindowContext(max_messages=12),
+        max_iterations=5,
+    )
+
+    result = await agent.run("Introduce EasyAgent in one sentence.")
+    print(result)
+
+
+asyncio.run(main())
+```
+
+There is also a runnable example:
+
+```bash
+python examples/simple_react_agent.py
+```
+
+## Tools
+
+Define a tool with `@register_tool`:
 
 ```python
 from easyagent.tool import register_tool
+
 
 @register_tool
 class GetWeather:
     name = "get_weather"
     type = "function"
-    description = "Get the weather for a city."
+    description = "Get weather for a city."
     parameters = {
         "type": "object",
-        "properties": {"city": {"type": "string", "description": "City name"}},
+        "properties": {
+            "city": {"type": "string", "description": "City name"},
+        },
         "required": ["city"],
     }
 
     def init(self) -> None:
         pass
 
-    def execute(self, city: str) -> str:
-        return f"The weather in {city} is sunny, 25°C."
+    def execute(self, city: str, **kwargs) -> str:
+        return f"The weather in {city} is sunny."
 ```
 
-### 3. Create Agent
+Use it with `ReactAgent`:
 
 ```python
-import asyncio
-from easyagent import ReactAgent
-from easyagent.model.litellm_model import LiteLLMModel
-
-model = LiteLLMModel(model="gpt-4o-mini")
-
 agent = ReactAgent(
-    model=model,
+    model=LiteLLMModel(model="gpt-4o-mini"),
     tools=["get_weather"],
-    system_prompt="You are a helpful assistant.",
-    max_iterations=10,
 )
-
-result = asyncio.run(agent.run("What's the weather in Beijing?"))
-print(result)
 ```
-
-### 4. SandboxAgent (Code Execution)
-
-```python
-import asyncio
-from easyagent import SandboxAgent
-from easyagent.model.litellm_model import LiteLLMModel
-
-model = LiteLLMModel(model="gpt-4o")
-
-# Local sandbox (for development)
-agent = SandboxAgent(model=model)
-
-# Docker sandbox (for production)
-agent = SandboxAgent(
-    model=model,
-    sandbox_type="docker",
-    image="python:3.12-slim",
-    cpu_limit=2.0,
-    memory_limit="1g",
-    network=True,
-)
-
-result = asyncio.run(agent.run("Write a fibonacci program and run it"))
-print(result)
-```
-
-**SandboxAgent** comes with built-in tools:
-- `bash` - Execute shell commands
-- `write_file` - Write files (handles complex content safely)
-- `read_file` - Read files
-
-## Core Components
-
-### Agent
-
-| Class | Description |
-|-------|-------------|
-| `ReactAgent` | ReAct loop: think → act → observe |
-| `ToolAgent` | Tool registration and execution |
-| `SandboxAgent` | ReactAgent with isolated code execution |
-
-### Sandbox
-
-```python
-from easyagent import DockerSandbox, LocalSandbox, create_sandbox
-
-# Factory function
-sandbox = create_sandbox("docker", image="python:3.12-slim")
-
-# Or direct instantiation
-sandbox = DockerSandbox(
-    image="python:3.12-slim",
-    memory_limit="512m",
-    cpu_limit=1.0,
-    network=True,
-)
-
-async with sandbox:
-    result = await sandbox.exec_command("python --version")
-    print(result.output)
-    
-    await sandbox.write_file("hello.py", "print('Hello!')")
-    result = await sandbox.exec_command("python hello.py")
-```
-
-### Memory
-
-```python
-from easyagent.memory import SlidingWindowMemory, SummaryMemory
-
-# Sliding window
-memory = SlidingWindowMemory(max_messages=20, max_tokens=4000)
-
-# Auto-summary for long tasks
-memory = SummaryMemory(task_id="task_001", reserve_ratio=0.3)
-```
-
-### Pipeline
-
-DAG-based workflow with parallel execution:
-
-```python
-import asyncio
-from easyagent.pipeline.base import BaseNode, BasePipeline, NodeContext
-
-class FetchData(BaseNode):
-    async def execute(self, ctx: NodeContext) -> None:
-        ctx.data = "raw_data"
-
-class ProcessA(BaseNode):
-    async def execute(self, ctx: NodeContext) -> None:
-        ctx.result_a = f"{ctx.data}_A"
-
-class ProcessB(BaseNode):
-    async def execute(self, ctx: NodeContext) -> None:
-        ctx.result_b = f"{ctx.data}_B"
-
-fetch = FetchData()
-process_a = ProcessA()
-process_b = ProcessB()
-
-fetch >> [process_a, process_b]  # Parallel branches
-
-pipeline = BasePipeline(root=fetch)
-ctx = asyncio.run(pipeline.run())
-```
-
-### Built-in Tools
-
-| Tool | Description | Required |
-|------|-------------|----------|
-| `bash` | Execute shell commands in sandbox | SandboxAgent |
-| `write_file` | Write files to sandbox | SandboxAgent |
-| `read_file` | Read files from sandbox | SandboxAgent |
-| `serper_search` | Google search via Serper API | `SERPER_API_KEY` env |
-| `load_skill` | Load a skill's body and activate its declared tools | auto, when `skills=[...]` |
 
 ## Skills
 
-Skills are on-demand **capability packages** (markdown instructions + optional tool whitelist) that the agent loads only when it decides they are relevant. This keeps the base system prompt small while giving the agent access to specialized procedures.
+Skills are markdown-based capability packages loaded on demand.
 
-### Layout
+Directory layout:
 
-```
+```text
 ./skills/
   my-skill/
     SKILL.md
 ```
 
-### SKILL.md
+Example `SKILL.md`:
 
 ```markdown
 ---
 name: my-skill
-description: One-line summary shown to the LLM before loading.
+description: One-line summary shown before loading.
 allowed-tools:
-  - some_registered_tool
+  - get_weather
 ---
 
-# Full instructions here (only loaded after `load_skill` is called)
+# Full instructions
 ```
 
-### Usage
+Usage:
 
 ```python
-from easyagent import ReactAgent
-
 agent = ReactAgent(
-    model=...,
+    model=LiteLLMModel(model="gpt-4o-mini"),
     skills=["my-skill"],
-    skill_dir="./skills",   # optional; defaults to $EA_SKILLS_DIR or ./skills
+    skill_dir="./skills",
 )
 ```
 
-The agent sees only each skill's `name` and `description` in its system prompt. When the LLM decides a skill is relevant, it calls the built-in `load_skill` tool — the full body is returned as a tool result and any declared tools are activated.
+The model only sees the skill summary at first. When it decides to load the skill, `SkillCapability` returns the full body and activates the declared tools for the current session.
 
-**Progressive disclosure** keeps the default context footprint small; body content is only read from disk (and billed in tokens) when actually needed.
+## Sandbox
 
-## Project Structure
+`SandboxAgent` is now a thin preset built from:
 
+- `SandboxCapability`
+- `ToolCapability`
+- `ReActLoop`
+
+Example:
+
+```python
+import asyncio
+
+from easyagent import LiteLLMModel, SandboxAgent
+from easyagent.sandbox import LocalSandbox
+
+
+async def main() -> None:
+    model = LiteLLMModel(model="gpt-4o-mini")
+    agent = SandboxAgent(
+        model=model,
+        sandbox=LocalSandbox(),
+    )
+    result = await agent.run("Run a short Python command and tell me the output.")
+    print(result)
+
+
+asyncio.run(main())
 ```
+
+Built-in sandbox tools:
+
+- `bash`
+- `write_file`
+- `read_file`
+
+## Main Modules
+
+```text
 easyagent/
-├── agent/          # ReactAgent, ToolAgent, SandboxAgent
-├── model/          # LiteLLMModel, Message, ToolCall
-├── memory/         # SlidingWindowMemory, SummaryMemory
-├── tool/           # ToolManager, @register_tool
-│   ├── code/       # bash, write_file, read_file
-│   ├── skill/      # load_skill
-│   └── web/        # serper_search
-├── skill/          # SkillManager, Skill, SKILL.md loader
-├── sandbox/        # DockerSandbox, LocalSandbox
-├── pipeline/       # BaseNode, BasePipeline
-├── config/         # ModelConfig, AppConfig
-├── prompt/         # Prompt templates
-└── debug/          # Logger, LogCollector
+├── agent/       # Agent, ReactAgent, SandboxAgent, AgentSession
+├── capability/  # BaseCapability, Tool/Skill/Sandbox capabilities
+├── context/     # FullContext, SlidingWindowContext, SummaryContext
+├── loop/        # BaseLoop, ReActLoop, SingleTurnLoop
+├── memory/      # BaseMemory, InMemoryMemory
+├── model/       # BaseLLM, LiteLLMModel, Message, ToolCall
+├── sandbox/     # BaseSandbox, DockerSandbox, LocalSandbox
+├── skill/       # Skill, SkillManager, SKILL.md loader
+├── tool/        # Tool protocol, ToolManager, built-in tools
+├── prompt/      # Prompt templates
+├── config/      # Config loading
+└── debug/       # Logging helpers
 ```
+
+## Status
+
+The current codebase has already been migrated to the new architecture:
+
+- session-owned runtime state
+- memory/context split
+- capability-based feature composition
+
+MCP integration and broader documentation cleanup are still future work.
 
 ## License
 
