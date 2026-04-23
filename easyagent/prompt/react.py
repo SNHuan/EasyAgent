@@ -38,3 +38,23 @@ Your response should follow this structure:
 {REACT_END_TOKEN}
 """
 
+
+REACT_SKILLS_HEADER = "## Available Skills"
+
+REACT_SKILLS_INSTRUCTIONS = (
+    "The following skills are capability packages you can load on demand. "
+    "You see only each skill's name and short description. To use a skill, "
+    "call the `load_skill` tool with the skill name; its full instructions "
+    "and any tools it enables will then become available."
+)
+
+
+def build_skills_section(summaries: list[dict[str, str]]) -> str:
+    """Render the 'Available Skills' section for the system prompt."""
+    if not summaries:
+        return ""
+    lines = [REACT_SKILLS_HEADER, "", REACT_SKILLS_INSTRUCTIONS, ""]
+    for s in summaries:
+        lines.append(f"- **{s['name']}**: {s['description']}")
+    return "\n".join(lines)
+

@@ -1,5 +1,6 @@
 from typing import Any
 import base64
+import logging
 import mimetypes
 from pathlib import Path
 
@@ -8,7 +9,14 @@ from easyagent.debug.log import Color
 from easyagent.memory.base import BaseMemory
 from easyagent.model.base import BaseLLM
 from easyagent.model.schema import Message, content_to_text
-from easyagent.prompt.react import REACT_SYSTEM_PROMPT, REACT_END_TOKEN
+from easyagent.prompt.react import (
+    REACT_SYSTEM_PROMPT,
+    REACT_END_TOKEN,
+    build_skills_section,
+)
+from easyagent.skill import SkillManager, agent_context
+
+_log = logging.getLogger(__name__)
 
 
 class ReactAgent(ToolAgent):
@@ -21,16 +29,40 @@ class ReactAgent(ToolAgent):
         tools: list[str] | None = None,
         max_iterations: int = 10,
         memory: BaseMemory | None = None,
+        *,
+        skills: list[str] | None = None,
+        skill_dir: str | Path | None = None,
     ):
-        combined_prompt = self._build_system_prompt(system_prompt)
+        if skill_dir:
+            SkillManager().add_search_dir(Path(skill_dir))
+        summaries = SkillManager().list_summaries(skills) if skills else []
+        if skills:
+            known = {s["name"] for s in summaries}
+            for n in skills:
+                if n not in known:
+                    _log.warning("Skill '%s' not found; skipping", n)
+        if summaries:
+            tool_set = set(tools or [])
+            tool_set.add("load_skill")
+            tools = list(tool_set)
+
+        combined_prompt = self._build_system_prompt(system_prompt, summaries)
         super().__init__(model, combined_prompt, tools, memory)
         self._max_iterations = max_iterations
+        self._skill_names: list[str] = [s["name"] for s in summaries]
 
-    def _build_system_prompt(self, user_prompt: str) -> str:
-        """Combine ReAct system prompt with user prompt"""
+    def _build_system_prompt(
+        self,
+        user_prompt: str,
+        skill_summaries: list[dict[str, str]] | None = None,
+    ) -> str:
+        """Combine ReAct system prompt with optional skills section and user prompt."""
+        parts = [REACT_SYSTEM_PROMPT]
+        if skills_section := build_skills_section(skill_summaries or []):
+            parts.append(skills_section)
         if user_prompt:
-            return f"{REACT_SYSTEM_PROMPT}\n\n{user_prompt}"
-        return REACT_SYSTEM_PROMPT
+            parts.append(user_prompt)
+        return "\n\n".join(parts)
 
     def _is_finished(self, content: str) -> bool:
         """Check if output contains termination token"""
@@ -78,6 +110,12 @@ class ReactAgent(ToolAgent):
         return {"type": "image_url", "image_url": {"url": str(image)}}
 
     async def run(self, user_input: str | dict[str, Any] | list[dict[str, Any]]) -> str:
+        with agent_context(self):
+            return await self._run_inner(user_input)
+
+    async def _run_inner(
+        self, user_input: str | dict[str, Any] | list[dict[str, Any]]
+    ) -> str:
         content = self._build_user_content(user_input)
         self.add_message(Message.user(content))
         if self._debug:
