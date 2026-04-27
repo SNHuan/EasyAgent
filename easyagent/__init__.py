@@ -1,39 +1,31 @@
-"""EasyAgent - an incrementally designed agent system."""
+"""EasyAgent - an incrementally designed agent SDK.
 
-from easyagent.agent import Agent, AgentSession, AgentStatus, BaseAgent, ReactAgent, SandboxAgent
-from easyagent.capability import BaseCapability, SandboxCapability, SkillCapability, ToolCapability
-from easyagent.context import BaseContext, FullContext, SlidingWindowContext, SummaryContext
-from easyagent.loop import BaseLoop, ReActLoop, SingleTurnLoop
-from easyagent.memory import BaseMemory, InMemoryMemory
-from easyagent.model.base import BaseLLM
+The root package exposes the small stable SDK surface. Advanced building
+blocks live in their submodules, for example ``easyagent.runtime`` or
+``easyagent.context``.
+"""
+
+from easyagent.agent import Agent, AgentRunResult, AgentSession, ReactAgent, SandboxAgent, SkillAgent
+from easyagent.events import EventBus, MessageEvent
 from easyagent.model.litellm_model import LiteLLMModel
-from easyagent.model.schema import LLMResponse, Message, ToolCall
+from easyagent.model.schema import Message
+from easyagent.skill import SkillManager
+from easyagent.tool import ToolManager, register_tool
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "Agent",
+    "AgentRunResult",
     "AgentSession",
-    "AgentStatus",
-    "BaseAgent",
-    "ReactAgent",
+    "SkillAgent",
     "SandboxAgent",
-    "BaseCapability",
-    "SandboxCapability",
-    "SkillCapability",
-    "ToolCapability",
-    "BaseContext",
-    "FullContext",
-    "SlidingWindowContext",
-    "SummaryContext",
-    "BaseLoop",
-    "ReActLoop",
-    "SingleTurnLoop",
-    "BaseMemory",
-    "InMemoryMemory",
-    "BaseLLM",
+    "ReactAgent",
     "LiteLLMModel",
-    "LLMResponse",
     "Message",
-    "ToolCall",
+    "MessageEvent",
+    "EventBus",
+    "ToolManager",
+    "SkillManager",
+    "register_tool",
 ]

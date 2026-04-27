@@ -1,43 +1,61 @@
 from __future__ import annotations
 
-from easyagent.agent.agent import Agent
-from easyagent.capability import SandboxCapability, ToolCapability
-from easyagent.context.base import BaseContext
-from easyagent.loop.react import ReActLoop
-from easyagent.memory.base import BaseMemory
-from easyagent.model.base import BaseLLM
+from typing import Any
+
+from easyagent.agent.react_agent import ReactAgent
+from easyagent.agent.session import AgentSession
 from easyagent.sandbox import BaseSandbox, create_sandbox
+from easyagent.tool.code.bash import Bash
+from easyagent.tool.code.file import ReadFile, WriteFile
 
 
-class SandboxAgent(Agent):
+class SandboxAgent(ReactAgent):
+    """ReactAgent + sandboxed code execution.
+
+    Manages the sandbox lifecycle (start/stop) and registers the
+    ``bash``, ``write_file``, and ``read_file`` tools automatically.
+
+    Usage::
+
+        agent = SandboxAgent(
+            model=m,
+            sandbox=LocalSandbox(),      # or {"type": "local"}
+            tools=[my_custom_tool],       # additional tools
+        )
+    """
+
     def __init__(
         self,
-        model: BaseLLM,
+        model: Any,
         *,
-        sandbox: BaseSandbox | dict,
-        system_prompt: str = "",
+        sandbox: BaseSandbox | dict[str, Any],
         max_iterations: int = 10,
-        memory: BaseMemory | None = None,
-        context: BaseContext | None = None,
-        tools: list[str] | None = None,
+        **kwargs: Any,
     ):
-        sandbox_instance = self._build_sandbox(sandbox)
-        default_tools = ["bash", "write_file", "read_file", *(tools or [])]
-        capabilities = [
-            SandboxCapability(sandbox_instance),
-            ToolCapability(tools=default_tools),
-        ]
-        super().__init__(
-            model=model,
-            loop=ReActLoop(max_iterations=max_iterations),
-            memory=memory,
-            context=context,
-            system_prompt=system_prompt,
-            capabilities=capabilities,
-        )
+        super().__init__(model, max_iterations=max_iterations, **kwargs)
+        self._sandbox = self._build_sandbox(sandbox)
+        self.add_tool(
+            [
+                Bash(),
+                WriteFile(),
+                ReadFile
+            ]
+            )
+
+    async def on_session_start(self, session: AgentSession) -> None:
+        await super().on_session_start(session)
+        await self._sandbox.start()
+        session.sandbox = self._sandbox
+
+    async def on_session_end(self, session: AgentSession) -> None:
+        try:
+            await self._sandbox.stop()
+        finally:
+            session.sandbox = None
+        await super().on_session_end(session)
 
     @staticmethod
-    def _build_sandbox(sandbox: BaseSandbox | dict) -> BaseSandbox:
+    def _build_sandbox(sandbox: BaseSandbox | dict[str, Any]) -> BaseSandbox:
         if isinstance(sandbox, dict):
             config = sandbox.copy()
             sandbox_type = config.pop("type", "local")

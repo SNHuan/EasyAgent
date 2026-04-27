@@ -75,12 +75,21 @@ class Message(BaseModel):
     def text(self) -> str:
         return content_to_text(self.content)
 
-    def to_api_dict(self) -> dict[str, Any]:
-        """渲染为 LLM API 所需的 dict 格式，将 reasoning_content 合并到 content。"""
+    def to_api_dict(
+        self,
+        *,
+        include_reasoning: bool = False,
+        reasoning_tag: str = "think",
+    ) -> dict[str, Any]:
+        """Render as an LLM API message dict.
+
+        Reasoning content is excluded by default because providers disagree on
+        whether and how it should be replayed. Adapters that explicitly need it
+        can opt in and choose the wrapper tag.
+        """
         content = self.content
-        # 对于 assistant 消息，将 reasoning_content 合并到 content
-        if self.role == "assistant" and self.reasoning_content:
-            content = f"<think>{self.reasoning_content}</think>\n{content}"
+        if self.role == "assistant" and self.reasoning_content and include_reasoning:
+            content = f"<{reasoning_tag}>{self.reasoning_content}</{reasoning_tag}>\n{content}"
         
         result: dict[str, Any] = {"role": self.role, "content": content}
         if self.tool_calls:

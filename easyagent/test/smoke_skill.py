@@ -9,9 +9,10 @@ import shutil
 import sys
 from pathlib import Path
 
-from easyagent import ReactAgent
+from easyagent import SkillAgent
 from easyagent.config.base import ModelConfig
 from easyagent.model.litellm_model import LiteLLMModel
+from easyagent.skill import SkillManager
 from easyagent.tool import register_tool
 
 
@@ -60,16 +61,21 @@ async def main() -> None:
     print(f"Using model: {model_name}")
     model = LiteLLMModel(**config.get_model(model_name))
 
-    agent = ReactAgent(
+    skill_manager = SkillManager(include_default_dirs=False)
+
+    agent = SkillAgent(
         model=model,
+        tools=[GetWeatherSmoke()],
         skills=["weather-smoke"],
-        skill_dir=skill_dir,
+        skill_root=skill_dir,
+        skill_manager=skill_manager,
         max_iterations=6,
     )
 
     print("=" * 60)
     print("system_prompt excerpt:")
-    lines = agent._system_prompt.splitlines()
+    session = agent.create_session()
+    lines = agent.build_system_prompt(session).splitlines()
     # Print the "Available Skills" section only, to keep output tight
     try:
         idx = lines.index("## Available Skills")
@@ -77,14 +83,14 @@ async def main() -> None:
     except ValueError:
         print("(Available Skills section not found — bug!)")
     print("=" * 60)
-    print("tools before run:", agent._tool_names)
+    print("tools before run:", session.enabled_tools)
 
-    result = await agent.run("北京天气怎么样?")
+    result = await agent.run("北京天气怎么样?", session=session)
 
     print("=" * 60)
-    print("tools after run:", agent._tool_names)
-    print("result:", result)
-    assert "get_weather_smoke" in agent._tool_names, (
+    print("tools after run:", session.enabled_tools)
+    print("result:", result.final_output)
+    assert "get_weather_smoke" in session.enabled_tools, (
         "get_weather_smoke should have been activated by load_skill"
     )
     print("\nSMOKE OK")

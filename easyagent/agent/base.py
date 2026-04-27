@@ -1,50 +1,30 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from easyagent.agent.session import AgentSession
-from easyagent.model.base import BaseLLM
+if TYPE_CHECKING:
+    from easyagent.agent.session import AgentRunResult, AgentSession, LoopStepResult
 
 
 class BaseAgent(ABC):
-    def __init__(
-        self,
-        default_model: BaseLLM,
-        system_prompt: str = "",
-    ):
-        self._default_model = default_model
-        self._system_prompt = system_prompt
+    """Minimal contract for anything a Runtime can host."""
 
-    @property
-    def default_model(self) -> BaseLLM:
-        return self._default_model
-
-    @property
-    def system_prompt(self) -> str:
-        return self._system_prompt
+    session_class: type[AgentSession] = None  # type: ignore[assignment]
 
     @abstractmethod
-    def create_session(self, **kwargs: Any) -> AgentSession:
-        pass
+    async def run(self, user_input: Any, *, session: "AgentSession | None" = None) -> "AgentRunResult": ...
 
-    @abstractmethod
-    async def run(self, user_input: Any, *, session: AgentSession | None = None) -> str:
-        pass
+    def create_session(self) -> "AgentSession":
+        from easyagent.agent.session import AgentSession
 
-    @abstractmethod
-    def build_system_prompt(self, session: AgentSession) -> str:
-        pass
+        return (self.session_class or AgentSession)()
 
-    @abstractmethod
-    def get_tool_schemas(self, session: AgentSession) -> list[dict[str, Any]]:
-        pass
+    async def on_session_start(self, session: "AgentSession") -> None: ...
+    async def on_session_end(self, session: "AgentSession") -> None: ...
 
-    @abstractmethod
-    async def execute_tool_call(
-        self,
-        session: AgentSession,
-        name: str,
-        arguments: dict[str, Any],
-    ) -> str:
-        pass
+    async def run_session(self, session: "AgentSession", user_input: Any) -> str:
+        raise NotImplementedError
+
+    async def step(self, session: "AgentSession") -> "LoopStepResult":
+        raise NotImplementedError

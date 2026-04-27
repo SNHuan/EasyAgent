@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Iterable
 
 
 class SkillValidationError(ValueError):
@@ -61,5 +62,42 @@ class Skill:
             self._body = body.strip()
         return self._body
 
+    def list_files(self) -> list[str]:
+        """List non-SKILL.md files packaged with this skill."""
+        files: list[str] = []
+        for path in self._iter_package_files():
+            rel = path.relative_to(self._path).as_posix()
+            if rel == "SKILL.md":
+                continue
+            files.append(rel)
+        return sorted(files)
+
+    def read_file(self, relative_path: str) -> str:
+        """Read a packaged skill file by relative path."""
+        path = self.resolve_file(relative_path)
+        return path.read_text(encoding="utf-8")
+
+    def resolve_file(self, relative_path: str) -> Path:
+        """Resolve a skill-local path and prevent escaping the skill folder."""
+        normalized = relative_path.strip().replace("\\", "/")
+        if not normalized:
+            raise ValueError("relative_path is required")
+        path = (self._path / normalized).resolve()
+        root = self._path.resolve()
+        if path == root or root not in path.parents:
+            raise ValueError(f"Path escapes skill directory: {relative_path}")
+        if not path.is_file():
+            raise FileNotFoundError(relative_path)
+        return path
+
     def summary(self) -> dict[str, str]:
         return {"name": self.name, "description": self.description}
+
+    def _iter_package_files(self) -> Iterable[Path]:
+        ignored_dirs = {"__pycache__", ".git", ".venv", "node_modules"}
+        for path in self._path.rglob("*"):
+            if not path.is_file():
+                continue
+            if any(part in ignored_dirs for part in path.relative_to(self._path).parts):
+                continue
+            yield path

@@ -43,7 +43,7 @@ class WriteFile:
         **kwargs: Any,
     ) -> str:
         """Write content to file."""
-        sandbox = None if session is None else session.resources.get("sandbox")
+        sandbox = None if session is None else getattr(session, "sandbox", None)
         if sandbox is None:
             return "Error: No sandbox configured. Please set up a sandbox first."
 
@@ -83,7 +83,7 @@ class ReadFile:
         **kwargs: Any,
     ) -> str:
         """Read content from file."""
-        sandbox = None if session is None else session.resources.get("sandbox")
+        sandbox = None if session is None else getattr(session, "sandbox", None)
         if sandbox is None:
             return "Error: No sandbox configured. Please set up a sandbox first."
 

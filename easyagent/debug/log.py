@@ -1,8 +1,18 @@
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import IO, Any
+
+_file_handler: IO[str] | None = None
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+
+
+def setup_file_logging(path: str) -> None:
+    """Direct all log output to *path* in addition to stdout (no ANSI codes)."""
+    global _file_handler
+    _file_handler = open(path, "w", encoding="utf-8", buffering=1)  # line-buffered
 
 
 class Color(str, Enum):
@@ -69,7 +79,10 @@ class Logger:
         c = color or self.LEVEL_COLORS.get(record.level, Color.WHITE)
         ts = record.timestamp.strftime("%H:%M:%S")
         prefix = f"[{record.name}]" if record.name else ""
-        print(f"{Color.GRAY.value}{ts}{Color.RESET.value} {c.value}{record.level.value:5}{Color.RESET.value} {prefix} {record.message}")
+        line = f"{Color.GRAY.value}{ts}{Color.RESET.value} {c.value}{record.level.value:5}{Color.RESET.value} {prefix} {record.message}"
+        print(line)
+        if _file_handler is not None:
+            _file_handler.write(_ANSI_RE.sub("", line) + "\n")
 
     def debug(self, message: str, **extra):
         self._log(Level.DEBUG, message, **extra)

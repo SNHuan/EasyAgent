@@ -55,7 +55,7 @@ class LocalSandbox:
         """Write file to workdir."""
         file_path = Path(self.workdir) / path
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(content)
+        file_path.write_text(content, encoding="utf-8")
 
     async def read_file(self, path: str) -> str:
         """Read file from workdir."""

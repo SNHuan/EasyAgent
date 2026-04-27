@@ -12,22 +12,13 @@ _log = logging.getLogger(__name__)
 
 
 class SkillManager:
-    """Singleton registry of skills, mirroring ToolManager's pattern."""
+    """Registry of skills with lazy directory discovery."""
 
-    _instance: "SkillManager | None" = None
-    _skills: dict[str, Skill]
-    _search_dirs: list[Path]
-    _discovered_dirs: set[Path]
-    _defaults_queued: bool
-
-    def __new__(cls) -> "SkillManager":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._skills = {}
-            cls._instance._search_dirs = []
-            cls._instance._discovered_dirs = set()
-            cls._instance._defaults_queued = False
-        return cls._instance
+    def __init__(self, *, include_default_dirs: bool = True):
+        self._skills: dict[str, Skill] = {}
+        self._search_dirs: list[Path] = []
+        self._discovered_dirs: set[Path] = set()
+        self._defaults_queued = not include_default_dirs
 
     def register(self, skill: Skill) -> None:
         if skill.name in self._skills:
@@ -112,9 +103,12 @@ class SkillManager:
 
 
 def register_skill(skill: Skill) -> Skill:
-    """Convenience helper: register a Skill instance built in code."""
-    SkillManager().register(skill)
+    """Convenience helper: register a Skill instance on the process default registry."""
+    DEFAULT_SKILL_MANAGER.register(skill)
     return skill
 
 
-__all__: list[Any] = ["SkillManager", "register_skill"]
+DEFAULT_SKILL_MANAGER = SkillManager()
+
+
+__all__: list[Any] = ["SkillManager", "DEFAULT_SKILL_MANAGER", "register_skill"]
