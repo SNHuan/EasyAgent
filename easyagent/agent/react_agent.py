@@ -12,6 +12,7 @@ from easyagent.model.schema import Message, content_to_text
 from easyagent.prompt.react import REACT_SYSTEM_PROMPT
 from easyagent.tool import ToolManager
 from easyagent.tool.end import EndTool
+from easyagent.tool.think import ThinkTool
 
 
 class ReactAgent(Agent):
@@ -29,12 +30,15 @@ class ReactAgent(Agent):
         tools: list[Any] | None = None,
         tool_manager: ToolManager | None = None,
         auto_end: bool = True,
+        auto_think: bool = True,
         max_iterations: int = 10,
         **kwargs: Any,
     ):
         super().__init__(model, max_steps=max_iterations, **kwargs)
         self._tool_manager = tool_manager or ToolManager(discover_builtin=False)
         self._enabled_tool_names: list[str] = []
+        if auto_think:
+            self.add_tool(ThinkTool())
         if auto_end:
             self.add_tool(EndTool())
         for t in tools or []:
