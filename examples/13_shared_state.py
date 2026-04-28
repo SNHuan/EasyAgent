@@ -1,18 +1,13 @@
 """第 13 层：shared_state —— 不通过消息也能协作。
 
-到 12 为止所有协作都是**对话**：成员通过 ChatMessage 互相影响。但很多
-真实协作不是对话——共编一份文档、投票、累积评分、等待外部信号。这种
-场景把状态硬塞进 ChatMessage.metadata 会让 prompt 工程变得很别扭。
+到 12 为止所有协作都是**对话**：成员通过 Speak action 互相影响。但很多
+真实协作不是对话——共编一份文档、投票、累积评分、等待外部信号。
 
-``SharedState`` 是 chat 层提供的**第二种协作原语**：版本化的并发安全
-KV，支持订阅和异步等待。配合 ``OnSharedKey`` 停止条件，可以让一个
-Orchestrator 在 message bus **完全为空**的情况下也能协作并停止。
+``SharedState`` + ``StatefulWorld`` 提供第二种协作原语：版本化的并发安全
+KV。Entity 通过 ``SetState`` action 写入，``StateSlice`` 在 perception
+里读取。配合 ``UntilPredicate`` 可以在消息流为空时也能停止。
 
-这一层的核心证据：跑完之后看输出会发现
-  - shared['plan'] / shared['review'] 都有值（说明协作完成）；
-  - 但 bus 上 writer/reader **互相之间一条消息都没有**。
-
-把"协作"从"对话"中剥离出来，是其他 12 层都做不到的形态。
+这一层的核心证据：跑完后 shared 上有值，但 Entity 之间没有 Speak。
 """
 
 from __future__ import annotations
@@ -25,54 +20,55 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from easyagent.chat import (
-    ChatMessage,
-    Identity,
-    Orchestrator,
-    SharedState,
-    StateChangedEvent,
-)
-from easyagent.chat.strategies import (
-    Broadcast,
-    LastMessage,
-    OnSharedKey,
+from easyagent import (
+    MaxTicks,
+    Perception,
     RoundRobin,
+    Runtime,
+    SetState,
+    SharedState,
+    UntilPredicate,
 )
+from easyagent.worlds.stateful import StateChangedEvent, StatefulWorld
+from easyagent.worlds.conversation import ConversationWorld
 from easyagent.events import EventBus, MessageEvent
 
 
-# 真实场景下应该写 PutStateTool / GetStateTool 喂给 ReactAgent。这里为了
-# 让 example 短小，用两个非 LLM 的 Talker 直接演示黑板交互——它们故意
-# 返回 ``None``（沉默），所以**完全不在消息流里发声**。
-class WriterTalker:
-    """读到任何 prompt 就把一份计划写到黑板上。"""
+# 非 LLM 的 Entity——直接操作黑板，故意不发 Speak。
 
-    def __init__(self, shared: SharedState):
-        self.identity = Identity("writer")
+class WriterEntity:
+    def __init__(self) -> None:
+        self._id = "writer"
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    async def act(self, perception: Perception) -> SetState | None:
+        from easyagent.core.types import StateSlice
+        state_slice = perception.of_type(StateSlice)
+        if state_slice and any(k == "plan" for k, _ in state_slice.snapshot):
+            return None
+        return SetState(key="plan", value="晨跑 + 早午餐 + 看展")
+
+
+class ReaderEntity:
+    def __init__(self, shared: SharedState) -> None:
+        self._id = "reader"
         self._shared = shared
 
-    async def __call__(self, msg: ChatMessage | None = None, *, channel: str = "default"):
-        self._shared.put("plan", "晨跑 + 早午餐 + 看展", producer="writer")
-        return None  # 故意沉默：只动黑板，不发消息
+    @property
+    def id(self) -> str:
+        return self._id
 
-    async def observe(self, msg: ChatMessage) -> None: ...
-    async def aclose(self) -> None: ...
-
-
-class ReaderTalker:
-    """从黑板上读 plan，写一条 review 回去。"""
-
-    def __init__(self, shared: SharedState):
-        self.identity = Identity("reader")
-        self._shared = shared
-
-    async def __call__(self, msg: ChatMessage | None = None, *, channel: str = "default"):
-        plan = self._shared.get("plan")
-        self._shared.put("review", f"通过：{plan}", producer="reader")
+    async def act(self, perception: Perception) -> SetState | None:
+        from easyagent.core.types import StateSlice
+        state_slice = perception.of_type(StateSlice)
+        if state_slice:
+            plan = dict(state_slice.snapshot).get("plan")
+            if plan and not self._shared.has("review"):
+                return SetState(key="review", value=f"通过：{plan}")
         return None
-
-    async def observe(self, msg: ChatMessage) -> None: ...
-    async def aclose(self) -> None: ...
 
 
 async def main() -> None:
@@ -80,53 +76,48 @@ async def main() -> None:
     bus_messages: list[MessageEvent] = []
     bus.subscribe(MessageEvent, lambda m: bus_messages.append(m))
 
-    # ── 实时打印黑板写入 ─────────────────────────────────────────────────
-    # 与其他 example 不同：这里的"实时"看的是 StateChangedEvent —— 因为
-    # 协作走的是黑板，不是消息流。每次 ``shared.put(key, value)`` 都会
-    # 产生一条 StateChangedEvent。
     def on_state(e: StateChangedEvent) -> None:
         print(f"[shared:{e.key} v{e.version} by {e.producer}] {e.value!r}")
 
     bus.subscribe(StateChangedEvent, on_state)
 
-    # 同时订阅 MessageEvent 是为了**证明它一条都没有**——本 example 的核心
-    # 论点就是消息流静默而协作完成。
-    def on_message(m: MessageEvent) -> None:
-        print(f"[msg from {m.sender}] {m.content}")    # 不该被触发
-
-    bus.subscribe(MessageEvent, on_message)
-
     shared = SharedState()
-    shared.attach_bus(bus)   # 黑板写操作也会发 StateChangedEvent 上 bus
+    shared.attach_bus(bus)
 
-    workshop = Orchestrator(
-        members={
-            "writer": WriterTalker(shared),
-            "reader": ReaderTalker(shared),
-        },
-        routing=Broadcast(),
-        turn_taking=RoundRobin(order=["writer", "reader"]),
-        stop=OnSharedKey("review"),    # 黑板上 review 出现就停
-        summarize=LastMessage(),       # 没消息 → 返回 None
-        shared_state=shared,
-        bus=bus,
-        identity=Identity("workshop"),
+    inner_world = ConversationWorld()
+    world = StatefulWorld(inner_world, shared)
+
+    schedule = MaxTicks(
+        inner=UntilPredicate(
+            inner=RoundRobin(ids=["writer", "reader"]),
+            predicate=lambda state: shared.has("review"),
+        ),
+        n=6,
     )
 
-    out = await workshop("协作产出周末计划")
-    print(f"\nout (应为 None，因为成员都沉默): {out}")
-    print(f"shared['plan']:   {shared.get('plan')!r}")
+    writer = WriterEntity()
+    reader = ReaderEntity(shared)
+
+    rt = Runtime(
+        world=world,
+        entities={"writer": writer, "reader": reader},
+        schedule=schedule,
+        bus=bus,
+    )
+
+    await rt.run("协作产出周末计划")
+
+    print(f"\nshared['plan']:   {shared.get('plan')!r}")
     print(f"shared['review']: {shared.get('review')!r}")
 
     inter = [m for m in bus_messages if m.sender in ("writer", "reader")]
-    print(f"\nbus 上 writer/reader 互发的 ChatMessage 数: {len(inter)}")
+    print(f"\nbus 上 writer/reader 互发的消息数: {len(inter)}")
 
     # ── 关键观察 ───────────────────────────────────────────────────────
-    # 1. 协作**完成了**——shared 上两个 key 都被写了；
-    # 2. 但 bus 上 writer→reader / reader→writer 的消息数 = 0；
-    # 3. ``OnSharedKey`` 让 orchestrator 在 bus 静默的情况下也能停下；
-    # 4. 真实场景把 shared 暴露给 LLM 用工具调用读写即可——这种"对话+
-    #    黑板"混用是 chat 层最强的协作模式。
+    # 1. 协作完成了——shared 上两个 key 都有值；
+    # 2. 但 bus 上 writer/reader 之间零条 MessageEvent；
+    # 3. UntilPredicate 让 runtime 在黑板满足条件时停下；
+    # 4. 真实场景把 shared 暴露给 LLM 用工具调用读写即可。
 
 
 if __name__ == "__main__":
