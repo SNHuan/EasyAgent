@@ -21,10 +21,32 @@ for the implementation plan.
 
 from __future__ import annotations
 
+from easyagent.chat.formatter import MultiAgentFormatter
 from easyagent.chat.message import BROADCAST, ChatMessage, Identity
+from easyagent.chat.orchestrator import ManualSession, Orchestrator
+from easyagent.chat.presets import chatroom, debate, fanout, groupchat, sequential
+from easyagent.chat.shared_state import SharedState, StateChangedEvent
+from easyagent.chat.talker import HumanTalker, LLMTalker, RuntimeTalker, Talker
+from easyagent.chat.turn_context import TurnContext
 
 __all__ = [
     "BROADCAST",
     "ChatMessage",
+    "HumanTalker",
     "Identity",
+    "LLMTalker",
+    "ManualSession",
+    "MultiAgentFormatter",
+    "Orchestrator",
+    "RuntimeTalker",
+    "SharedState",
+    "StateChangedEvent",
+    "Talker",
+    "TurnContext",
+    # Presets
+    "chatroom",
+    "debate",
+    "fanout",
+    "groupchat",
+    "sequential",
 ]
