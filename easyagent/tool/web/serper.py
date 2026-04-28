@@ -8,7 +8,6 @@ import httpx
 from easyagent.tool.manager import register_tool
 
 
-@register_tool
 class SerperSearch:
     """Google Search via Serper API"""
 
