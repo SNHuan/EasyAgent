@@ -8,20 +8,25 @@ Model
   -> Agent  (Agent / ReactAgent / SkillAgent / SandboxAgent)
   -> Tool / Skill / Sandbox
   -> AgentSession
-  -> Event
-  -> Runtime
+  -> Talker / Orchestrator / SharedState           ← chat 层（多 agent 默认入口）
+  -> Event / Runtime / Policy                      ← 进阶：tick 调度 / 自主仿真
 ```
 
-整个 SDK 围绕**三个核心概念**展开：
+整个 SDK 围绕**两条主线**：
 
 ```text
-Agent        = 可复用配置与行为定义（"角色设定"）
-AgentSession = Agent 在某次执行中的运行实例（"分身"）
-Runtime      = 多个 AgentSession 共享的执行环境（"世界"）
+单 agent 主线：  Model + Memory + Context + Tool + AgentSession  →  ReactAgent / SkillAgent / SandboxAgent
+多 agent 主线：  Talker (协议)  +  Orchestrator (容器)  +  SharedState (黑板)
+                ↑ 这一层就是 chat 层；它把"多 agent 协作"变成普通的 await 函数调用。
+
+Runtime 层是**进阶逃生通道**：tick 调度、policy 体系、自主群体仿真。
+                绝大多数多 agent 任务用 chat 层就够，不需要碰 Runtime。
 ```
 
-> 心智模型：Agent 是定义；AgentSession 是实例；Runtime 是世界；Event 是通信；
-> 循环逻辑直接写在 agent 自己的 `step()` 方法里。
+> 心智模型：
+> - **Agent** 是定义；**AgentSession** 是实例；
+> - **Talker** 是"谁能说话"的统一抽象；**Orchestrator** 是 Talker 的容器（且自身也是 Talker，可嵌套）；
+> - **Runtime** 是 tick-based 的并发世界，给需要异步独立调度的场景用。
 
 ## 1. Model
 
@@ -31,7 +36,7 @@ Runtime      = 多个 AgentSession 共享的执行环境（"世界"）
 - `LiteLLMModel` 通过 LiteLLM 实现该契约。
 - `Message`、`ToolCall`、`LLMResponse` 定义 SDK 的消息 schema。
 
-这层让上层与具体 provider 解耦。
+`Message` 带一个可选的 `name` 字段——chat 层用它在多 agent prompt 里区分自己和他人，单 agent 场景下可忽略。
 
 ## 2. Memory and Context
 
@@ -40,9 +45,8 @@ Memory 存对话状态。Context 决定每次发给模型的是哪一部分。
 - `BaseMemory` 存消息。
 - `InMemoryMemory` 是默认的进程内实现。
 - `BaseContext` 把 memory 渲染成模型消息。
-- `FullContext`、`SlidingWindowContext`、`SummaryContext` 是不同的渲染策略。
-
-当一个 agent 的历史超出每轮可发送量时，这一拆分是必要的。
+- `FullContext`、`SlidingWindowContext`、`SummaryContext` 是单 agent 的渲染策略。
+- `MultiAgentFormatter`（chat 层）是多 agent 场景的渲染策略——把别人的发言折叠成 user 消息里的 `<history>` 块，避免 LLM 把别人的话当成自己说过的。
 
 ## 3. Agent
 
@@ -61,76 +65,23 @@ SDK 提供四个具体 agent 类，通过继承叠加能力：
 | `SkillAgent(ReactAgent)` | 在 ReactAgent 基础上，注入 `load_skill` / `list_skill_files` / `read_skill_file` / `run_skill_script` 四个工具，模型可以按需加载 SKILL.md 包并激活其工具。 |
 | `SandboxAgent(ReactAgent)` | 在 ReactAgent 基础上，自动注册 `bash` / `write_file` / `read_file` 三个工具，并通过 `on_session_start` / `on_session_end` 管理沙箱生命周期。 |
 
-**循环逻辑直接写在 `Agent.step()` 里**，不再有单独的 `Loop` 层。`Agent.step()`
-做单次模型调用并立即结束；`ReactAgent.step()` 做一轮模型调用 + 工具执行；
-`run_session()` 反复调 `step()` 直到任务完成。
+**Agent 不持有运行态**：当前对话 memory、当前任务状态、当前 sandbox 实例等都不属于 Agent，而属于 AgentSession。`Agent` 只持有 `_memory_factory` 与 `_context_factory`，它们在 `create_session()` 时被克隆为该 session 独立的实例。
 
-**Agent 不持有运行态**：当前对话 memory、当前任务状态、当前 sandbox 实例、
-当前 inbox / outbox 等都不属于 Agent，而属于 AgentSession。`Agent` 只持有
-`_memory_factory` 与 `_context_factory`，它们在 `create_session()` 时被克隆
-为该 session 独立的 `memory` / `context` 实例。Runtime 会为每个传入的 agent
-创建一个独立 session。
-
-> **关于 ContextStrategy**：`SlidingWindowContext` / `FullContext` 这类策略
-> 本身可能是无状态的，但 `SummaryContext` 等带摘要缓存 / 压缩游标的策略会在
-> session 内累积状态。规则是：**Agent 持 ContextStrategy 配置；AgentSession
-> 持该策略的 per-instance 实例**——通过 `session.context = strategy.clone()`
-> 保证每个分身有独立状态。
-
-### 生命周期钩子
-
-子类通过覆盖以下钩子接管资源管理：
-
-```python
-class SandboxAgent(ReactAgent):
-    async def on_session_start(self, session):
-        await self._sandbox.start()
-        session.sandbox = self._sandbox
-
-    async def on_session_end(self, session):
-        try:
-            await self._sandbox.stop()
-        finally:
-            session.sandbox = None
-```
-
-`Agent.run()` 与 Runtime 都保证：每个 session 进出一次的成对调用。
-
-### session_class
-
-通过给 Agent 子类设置 `session_class`，可以让 `create_session()` 返回自定义
-的 AgentSession 子类：
-
-```python
-class GroupChatSession(AgentSession):
-    async def on_events(self, events):
-        ...
-
-class GroupChatAgent(ReactAgent):
-    session_class = GroupChatSession
-```
-
-这是把"agent 收到 events 后怎么处理"这种行为定制下放到 session 层的标准方式。
+`BaseAgent.observe(msg)` 是新增的"只看不回"入口——把消息写进 session memory 但不触发 loop。chat 层的 Talker 协议在底层就靠这个。
 
 ## 4. Tool / Skill / Sandbox
 
 三个相关但不同层的概念：
 
 - **Tool**：模型可见的可调用函数。
-- **Skill**：一个目录包，包含必需的 `SKILL.md` 入口文件，以及可选的
-  `references/`、`templates/`、`assets/`、`scripts/`。
+- **Skill**：一个目录包，包含必需的 `SKILL.md` 入口文件，以及可选的 `references/`、`templates/`、`assets/`、`scripts/`。
 - **Sandbox**：工具执行所在的环境（`LocalSandbox` 或 `DockerSandbox`）。
 
-`SkillAgent` 加载一个 skill 时返回 `SKILL.md` 正文 + 文件清单。已加载的 skill
-可以通过 `list_skill_files` / `read_skill_file` / `run_skill_script` 渐进披露
-内部资源。
-
-需要沙箱的工具（`bash` / `write_file` / `read_file`）从 `session.sandbox` 直接
-读取，不再通过字符串 key 索引。
+需要沙箱的工具（`bash` / `write_file` / `read_file`）从 `session.sandbox` 直接读取，不再通过字符串 key 索引。
 
 ## 5. AgentSession
 
-`AgentSession` 是某个 Agent 在 Runtime 中的**运行实例**——也就是 agent 的"分身"。
+`AgentSession` 是某个 Agent 在某次执行中的**运行实例**——也就是 agent 的"分身"。
 
 ```text
 AgentSession = Agent 引用 + Memory + 渲染状态 + Resources + 当前任务状态
@@ -140,12 +91,8 @@ AgentSession = Agent 引用 + Memory + 渲染状态 + Resources + 当前任务�
 
 - `session_id`、对所属 `agent` 的引用；
 - `memory`、`context`、`enabled_tools`、`loaded_skills`；
-- `sandbox`（typed slot）、`resources`（其他 session 状态）；
-- `event_bus`（Runtime 注入）、`metadata`、`status`、`iteration_count`、
-  `final_output`、`loop_state`、`loop_steps`。
-
-Runtime 中每个 agent 名对应一个独立的 AgentSession，每个 session 拥有完全独立
-的 memory 与状态。需要多个 worker 时，给它们不同名字即可。
+- `sandbox`、`resources`；
+- `event_bus`（Runtime 注入时存在）、`metadata`、`status`、`iteration_count`、`final_output`、`loop_state`、`loop_steps`。
 
 ### 三个执行入口
 
@@ -161,211 +108,294 @@ class AgentSession:
         """处理一组 events 并产出新 events。Runtime 通过它驱动 session。"""
 ```
 
-- `run` / `step` 是单任务入口。
-- `on_events` 是 multi-agent 接入点：默认实现把 MessageEvent 注入 memory、
-  调 `run`、把结果包成 MessageEvent 回复。子类重写 `on_events` 来定制路由、
-  格式化、`@xxx` 解析等。
+- `run` / `step` 是单任务入口，chat 层和单 agent 场景都用它们。
+- `on_events` 是 **runtime 层** 的接入点，只有 tick-based runtime 才会走到。
 
-子类的 `on_events` 调用 `self.run(...)` 而不是 `self.agent.run(...)`，避免
-重复启停生命周期钩子。
+## 6. Chat 层（多 agent 默认入口）
 
-### 默认 on_events 的回复路由（保守默认）
+Chat 层是 `easyagent.chat` 子包提供的用户面 API。它把"多 agent 协作"抽象成同一个协议下的普通函数调用——**不用 event、不用 policy、不用 tick**。
 
-默认 `on_events` 的回复策略**保留输入消息的可见性**，避免在多 agent 场景下
-意外形成群聊自激活循环：
+### 6.1 Talker 协议
 
-- 输入是 broadcast (`to == "*"`)：回复也是 broadcast——保留"这是公开对话"的语义。
-- 输入是 DM (`to == frozenset({...})`)：回复**只发回给原始 sender**，其他
-  session 不会看到。
+```python
+class Talker(Protocol):
+    identity: Identity
 
-如果你的场景需要让所有 session 看到每条回复（典型的"全员群聊涌现"），重写
-`on_events` 显式 broadcast，参考 `examples/11_group_chat.py` 的
-`GroupChatSession`。这种场景下 SDK 让你**显式选择**而不是默认承担风险。
+    async def __call__(
+        self,
+        msg: ChatMessage | None = None,
+        *,
+        channel: str = "default",
+    ) -> ChatMessage | None:
+        """处理消息（如果有）并产生回复。返回 None 表示这一轮选择沉默。"""
 
-## 6. Event
+    async def observe(self, msg: ChatMessage) -> None:
+        """只接收消息进入记忆，不产生回复。"""
+```
 
-事件是 AgentSession 之间的通信介质。
+四种内置实现：
 
-事件分两类：
+| 实现 | 角色 |
+|---|---|
+| `LLMTalker` | 包装现有的 `BaseAgent`（ReactAgent / SkillAgent / SandboxAgent 任一）。每个 channel 一个独立 session。 |
+| `HumanTalker` | 通过 input/异步 queue 接 UI 或终端，让人类作为 Talker 参与。 |
+| `Orchestrator` | 多 Talker 容器（见 §6.3）。**它本身也是 Talker**——这就是嵌套的关键。 |
+| `RuntimeTalker` | 把整个 Runtime 包成 Talker，让 tick-based runtime 可以嵌进 chat 层。 |
 
-- **MessageEvent**（agent-to-agent 消息）：通过 `EventBus` 广播 + `StepPolicy`
-  投递给目标 session 的 `on_events`。`to` 字段决定可见性
-  （`"*"` 广播 / `frozenset(...)` DM 或子组）。
-- **WaitEvent**（Runtime 控制事件）：当一个 session 的 `on_events` 返回
-  `WaitEvent` 时，**Runtime 直接消费它**——把该 session 标记为"下一 tick
-  重新唤醒"，**不进入 `_state.events`、不发布到 bus、不通过 StepPolicy
-  投递给其他 session**。这避免了"某某等待了"这种系统信号污染其他 agent 的
-  上下文。
+### 6.2 ChatMessage：自带路由的消息单位
 
-`EventBus` 还会发布 `LLMCalledEvent` / `LLMRespondedEvent` /
-`ToolCalledEvent` / `ToolResultEvent` 等遥测事件，便于离线分析与监控。
+```python
+@dataclass
+class ChatMessage:
+    sender: Identity                                       # 谁说的
+    content: str | list[Block]
+    to: Literal["*"] | frozenset[str] = "*"                # 发给谁
+    channel: str = "default"                               # 哪个房间
+    role: Literal["user", "assistant", "system", "tool"]
+    reply_to: str | None = None                            # 回的哪条
+    metadata: dict = ...
+```
 
-`EventBus` 记录 MessageEvent 历史、分发订阅者、支持 streaming，但不参与控制
-流——控制流（停止、跳过、唤醒）由 Runtime + 各 Policy 决定。
+关键：**路由信息（`to` / `channel`）写在消息上**，不写在订阅器上。这让 `await alice(msg)` 这种直接调用就能完整表达"alice 给 bob 发了个私信"，没有外部状态。
 
-Agent / AgentSession 不互相直接调用方法，所有用户级通信都通过 MessageEvent
-完成。这层让多 agent 调度可以独立演进。
+`ChatMessage` 与 `Message` / `MessageEvent` 各司其职：
+- `Message`（model 层）：LLM API 协议格式；
+- `MessageEvent`（events 层）：bus 上的事件载荷；
+- `ChatMessage`（chat 层）：用户和 Talker 之间收发的对话单位。
 
-## 7. Runtime
+`MultiAgentFormatter` 负责 `list[ChatMessage] → list[Message]` 的转换，用户不感知。
 
-Runtime 是**多 AgentSession 共存的执行环境与调度器**。
+### 6.3 Orchestrator：多 Talker 容器
+
+`Orchestrator` 把一组成员 Talker 编排起来执行一段对话。它由四个**正交策略**驱动：
+
+```python
+@dataclass
+class Orchestrator:
+    members: dict[str, Talker]
+    routing: Routing                # Q3: 谁能听见每条消息？
+    turn_taking: TurnTaking         # Q2: 下一个谁说话？
+    stop: StopCondition             # Q4: 何时结束？
+    summarize: Summarize            # Q6: 容器对外说什么？
+    identity: Identity
+    bus: EventBus | None = None
+    shared_state: SharedState | None = None
+```
+
+**Orchestrator 自己也实现 Talker 协议**——它的 `__call__(msg) → ChatMessage` 签名和单个 Talker 完全一样。这是嵌套能力的来源：把一个 Orchestrator 当成成员塞进另一个 Orchestrator，外层无需知道内层有多复杂。
+
+`summarize` 决定容器对外说什么——比如 `ByJudge(judge)` 让一个 debate 容器只对外暴露 judge 的一句结论，alice/bob 的内部争论不外漏。这就是嵌套场景下"封装边界"的实现。
+
+### 6.4 五个 Preset
+
+```python
+sequential([t1, t2, t3], "go")          # 流水线，调用方写死顺序
+chatroom([t1, t2], announcement="...")  # 用户在 with 块里写 if/else 决定下一棒
+groupchat([t1, t2, t3])                 # LLM 在 msg.to 里 @ 下一棒
+debate([t1, t2], judge=t3)              # 第三方仲裁产出结论
+fanout([t1, t2, t3], "...")             # 同一 seed 同时丢给所有人
+```
+
+每个 preset 都只是 `Orchestrator(...)` 的薄工厂，没有特殊代码路径。
+
+### 6.5 SharedState：黑板协作
+
+不是所有协作都该走对话。共编一份文档、投票、累积评分、等待外部信号——这些场景把状态硬塞进消息里很别扭。
+
+`SharedState` 提供版本化的并发安全 KV，配合 `OnSharedKey` 停止条件、`FromSharedState` summarize 策略，可以让一个 Orchestrator **完全不发消息**也能协作并停止。
+
+```python
+shared = SharedState()
+shared.subscribe("score", lambda v: print(f"score updated to {v}"))
+await shared.wait_for("final_report")        # 异步等待
+shared.attach_bus(bus)                        # 写入时发 StateChangedEvent
+```
+
+## 7. Runtime 层（进阶）
+
+Runtime 层是 chat 层下面的另一种执行模型。它不是 chat 层的实现细节，而是**一种平行的、面向异步并发的多 agent 执行环境**。
 
 ```text
-Runtime = AgentSession 集合 + EventBus + 调度器 + 共享状态 + 停止控制
+Runtime = AgentSession 集合 + EventBus + 调度器（policy 三件套） + 停止控制
 ```
 
-### 关键 API
+### 7.1 关键 API
 
 ```python
-runtime = SequentialRuntime(
-    agents={"worker": WorkerAgent(...)},
+runtime = ShuffledRuntime(
+    agents={"alice": AliceAgent(...), "bob": BobAgent(...)},
     step_policy=DeliverToRecipients(),
-    stop_policy=StopWhenIdle(),
+    stop_policy=AnyOf([StopWhenIdle(grace_steps=1), StopAfterTicks(max_ticks=5)]),
 )
-
-# 运行前也可以继续添加 agent
-runtime.add_agent("reviewer", ReviewerAgent(...))
-
-# 注入 seed 事件
-runtime.send(MessageEvent(sender="user", to="*", content="..."))
-
-# 跑调度循环
-result = await runtime.run()
+result = await runtime.run([MessageEvent(sender="user", to="*", content="...")])
 ```
 
-多个 worker 直接使用多个名字：
+### 7.2 三种调度策略
 
-```python
-runtime = SequentialRuntime(
-    agents={
-        "worker-1": WorkerAgent(...),
-        "worker-2": WorkerAgent(...),
-        "worker-3": WorkerAgent(...),
-    },
-    step_policy=DeliverToRecipients(),
-    stop_policy=StopWhenIdle(),
-)
-```
+`SchedulePolicy.order(session_ids, state)` 返回**批列表**：每批内并发，批与批顺序执行。
 
-### 三种调度策略
-
-`SchedulePolicy.order(session_ids, state)` 返回**批列表**：每批内并发，批与
-批顺序执行；前一批的可见输出作为下一批的输入上下文。
-
-- `Parallel`：`[[a, b, c]]` —— 一批全并发，同 tick 内互不见。
-- `Sequential`：`[[a], [b], [c]]` —— 每个 session 一批，固定顺序，前一个的
-  输出对后一个可见。
+- `Parallel`：`[[a, b, c]]` — 一批全并发，同 tick 内互不见。
+- `Sequential`：`[[a], [b], [c]]` — 每个 session 一批，固定顺序，前一个的输出对后一个可见。
 - `Shuffled`：每个 session 一批，顺序随机——最贴近"谁先看到群消息"的社会模拟。
 
-```python
-# 直接用 TickBasedRuntime + 显式策略
-runtime = TickBasedRuntime(
-    agents={...},
-    step_policy=DeliverToRecipients(),
-    stop_policy=StopWhenIdle(),
-    schedule_policy=Shuffled(),
-)
+`ParallelRuntime` / `SequentialRuntime` / `ShuffledRuntime` 是 schedule_policy 的薄预设。
 
-# 或用预设
-runtime = ShuffledRuntime(agents={...}, ...)  # 等价
+### 7.3 Step / Stop policy
+
+- **`StepPolicy`** 决定一个事件要投递给哪些 session：
+  - `DeliverToRecipients` 按 `MessageEvent.to` 投递；
+  - `TickDriven` 忽略事件流，每 tick 给所有 session 一个 tick 信号让它们自行决定是否说话。
+- **`StopPolicy`** 决定何时终止：
+  - `StopWhenIdle` / `StopAfterTicks` / `StopAfterEvents` / `StopWhenMessageMatches` / `AnyOf`。
+
+### 7.4 Event 与 EventBus
+
+- **MessageEvent**（agent-to-agent 消息）通过 EventBus 广播 + StepPolicy 投递。
+- **WaitEvent**（Runtime 控制事件）当一个 session 的 `on_events` 返回 `WaitEvent` 时，Runtime 把该 session 标记为"下一 tick 重新唤醒"，**不进入 bus 历史**。
+- **遥测事件**（`LLMCalledEvent` / `LLMRespondedEvent` / `ToolCalledEvent` / `ToolResultEvent`）支持离线分析。
+
+EventBus 在 chat 层和 runtime 层是同一个东西，但承担的角色不同——chat 层把它当观测旁路（消息直送，bus 只复制一份做日志）；runtime 层把它当传输总线（事件就是消息）。
+
+## 8. Talker 机制 vs Runtime 机制
+
+这两套机制都解决"多 agent 协作"，但**模型完全不同**——选错了会很别扭。下面是对照表：
+
+| 维度 | Talker（chat 层） | Runtime（runtime 层） |
+|---|---|---|
+| **核心抽象** | `Talker.__call__(msg) → msg` —— 像普通函数 | `session.on_events(events) → events` —— 事件管道 |
+| **谁驱动循环** | **调用方**（`await orch(msg)` 拿结果就走） | **Runtime 自己**的 tick loop |
+| **执行模型** | 同步：一次发一个，等到回复 | 异步：每 tick 给所有 session 一次"事件批"，结果汇总成下批输入 |
+| **下一棒谁说话** | `TurnTaking` 策略**在容器内**决定，每轮一次 | `SchedulePolicy` 决定本 tick 跑哪些 session、是否并发 |
+| **何时停** | `StopCondition` 看历史决定，每轮检查 | `StopPolicy` 看 tick 状态决定，整轮检查 |
+| **组合性** | Orchestrator 自身是 Talker，**天然嵌套** | Runtime 不是 agent，要嵌套必须用 `RuntimeTalker` 包一层 |
+| **路由表达** | 写在 `ChatMessage.to` 上，是数据 | 由 `StepPolicy` 决定，是策略 |
+| **观测** | `bus` 是旁路，**不参与传输** | `bus` 既是观测又是事实上的总线 |
+| **典型用例** | pipeline / 群聊 / 嵌套子系统 / 黑板协作 | 社会仿真 / 自主群体 / 强并发批处理 / tick-based 调度 |
+| **代价** | 同步语义，单线流；做并发要靠 `fanout` | 概念多（事件 / policy 三件套 / tick），心智成本高 |
+
+### 什么时候用 Talker？
+
+绝大多数场景。包括：
+
+- 「先 A 再 B 再 C」（`sequential`）；
+- 「我在循环里决定下一棒谁说」（`chatroom` + if/else）；
+- 「让 LLM 自己决定下一棒」（`groupchat`）；
+- 「多人辩论 + 第三方仲裁」（`debate`）；
+- 「一个子系统作为更大 pipeline 里的一棒」（任意 Orchestrator 嵌套）；
+- 「成员之间通过黑板协作」（`SharedState` + `OnSharedKey`）。
+
+写法：`await sequential([...], "...")` / `async with chatroom(...)` / `await orch(msg)`。
+
+### 什么时候用 Runtime？
+
+只有真正需要 **tick-based 并发调度** 的场景：
+
+- 每个 agent 都有"自己的"循环节奏，不是被外层调用方推动的；
+- 需要 `Shuffled` / `Parallel` 这种"同 tick 内多人发言"的语义；
+- 需要 `WaitEvent` 让一个 agent "跳过这轮等下轮"；
+- 需要订阅 bus 上的 `MessageEvent` 历史做仿真分析；
+- 自主群体仿真——「谁先看到群消息谁先回复」这种社会模拟。
+
+写法：手写 `AgentSession.on_events`、配 `StepPolicy` / `SchedulePolicy` / `StopPolicy`、`runtime.run([MessageEvent(...)])`。`examples/14_advanced_runtime.py` 就是一个完整例子。
+
+### 两层互通
+
+它们不是非此即彼，可以**双向互嵌**：
+
+```python
+# 把 runtime 当 Talker 嵌进 chat 层
+sim = ShuffledRuntime(agents={...}, ...)
+final = await sequential([planner, RuntimeTalker(sim), writer], "...")
+
+# 也可以反过来——一个 chat-layer Orchestrator 实现了 Talker 协议，
+# 包一层适配后也可以作为 runtime 的 agent。
 ```
 
-`ParallelRuntime` / `SequentialRuntime` / `ShuffledRuntime` 是 schedule_policy
-的薄预设。
+EventBus 在两层之间充当公共观测层——给 chat 层的 Orchestrator 传一个 bus，给 runtime 也用同一个 bus，UI 一套订阅代码就能监听两边。
 
-### Step / Stop policy
+## 9. 数据流
 
-- `StepPolicy.deliveries(event, sessions, state) -> list[Delivery]` 决定一个
-  事件要投递给哪些 session。`sessions` 参数是
-  `Mapping[SessionId, AgentSession]`，policy 可以读取 session 状态做更精细
-  的路由决策。
-  - `DeliverToRecipients`：MessageEvent 按 `to` 投递（broadcast 时给除发送
-    者外的所有 session）；其他事件全员可见。
-  - `TickDriven`：忽略事件流，每 tick 给所有 session 同一个 _TickEvent，让
-    它们自行决定是否说话。
-- `StopPolicy.should_stop(state) -> (bool, reason)` 决定何时终止。
-  - `StopWhenIdle` / `StopAfterTicks` / `StopAfterEvents` /
-    `StopWhenMessageMatches` / `AnyOf`。
-
-> **命名约定**：在 Policy 接口和 `Delivery` 类型中，`SessionId` /
-> `session_ids` / `sessions` 指代的都是 Runtime 中的 session 实例。Runtime
-> 调度的对象是 session。`SessionId` 当前是 `AgentId` (`str`) 的别名，留作
-> 未来类型分化的扩展点。
-
-### PipelineRuntime
-
-如果场景就是固定串行交接链：
-
-```python
-pipeline = PipelineRuntime([researcher, writer, reviewer])
-result = await pipeline.run("写一段产品说明。")
-```
-
-它不走 tick loop，也不使用 `StepPolicy` / `SchedulePolicy` / `StopPolicy`。
-执行时按顺序调用每个 session 的 `invoke(current_input)`，并把上一棒的输出作
-为下一棒的输入。非末位 agent 自动获得一个 `end(data=...)` 工具用于交接。
-
-详细介绍见 [docs/runtime_walkthrough.md](runtime_walkthrough.md)。
-
-## 8. 数据流
-
-### 单 AgentSession 执行
+### 单 Agent 执行（不变）
 
 ```text
 Agent.run(user_input)
   └─ Agent.create_session()
-  └─ Agent.on_session_start(session)        # 子类可覆盖（SandboxAgent 启动沙箱）
+  └─ Agent.on_session_start(session)
   └─ Agent.run_session(session, user_input)
        └─ loop: Agent.step(session)         # 直到 done
-  └─ Agent.on_session_end(session)          # 子类可覆盖（SandboxAgent 关闭沙箱）
+  └─ Agent.on_session_end(session)
   └─ return AgentRunResult.from_session(session)
 ```
 
-### 多 AgentSession 协作
+### Chat 层多 Talker 协作
+
+```text
+Orchestrator.__call__(msg)
+  └─ ctx = TurnContext(members, channel, history=[], ...)
+  └─ if msg: routing.targets(msg, ctx) → 各 member.observe(msg)
+  └─ turn loop:
+       │ stop.check(ctx) → 决定是否退出
+       │ turn_taking.next(ctx) → 选下一发言者
+       │ reply = await member()             # Talker 协议调用
+       │ routing.targets(reply, ctx) → 路由给其他成员 observe
+       │ ctx.history.append(reply)
+  └─ summarize.produce(ctx, identity) → 容器对外的 ChatMessage
+```
+
+### Runtime 层多 AgentSession 协作
 
 ```text
 Runtime.run(seed_events)
   └─ enter all sessions (on_session_start)
   └─ tick loop:
-       │ StepPolicy.deliveries(event, sessions, state) -> Deliveries
-       │ SchedulePolicy.order(session_ids, state) -> [[batch1], [batch2], ...]
+       │ StepPolicy.deliveries(event, sessions, state) → Deliveries
+       │ SchedulePolicy.order(session_ids, state) → [[batch1], [batch2], ...]
        │ for batch:
        │     gather(session.on_events(events) for each session in batch)
        │     produced events:
-       │       • WaitEvent -> Runtime control: schedule that session for next tick (not published)
-       │       • other events -> _state.events + bus.publish + visible to later batches
+       │       • WaitEvent  → 调度该 session 下 tick 重跑（不上 bus）
+       │       • 其他事件   → _state.events + bus.publish + 后续 batch 可见
        │ StopPolicy.should_stop(state)
   └─ exit all sessions (on_session_end)
   └─ RuntimeResult(state, messages)
 ```
 
-## 9. Public API
-
-根包暴露常用 SDK 表面：
+## 10. Public API
 
 ```python
+# 单 agent + 工具
 from easyagent import (
     Agent, ReactAgent, SkillAgent, SandboxAgent,
     AgentSession, AgentRunResult,
     LiteLLMModel, Message,
-    EventBus, MessageEvent,
     ToolManager, SkillManager, register_tool,
+    EventBus, MessageEvent,
 )
-```
 
-进阶扩展点放在子包里：
+# 多 agent：chat 层（默认入口）
+from easyagent.chat import (
+    ChatMessage, Identity, Talker,
+    LLMTalker, HumanTalker, RuntimeTalker,
+    Orchestrator, ManualSession,
+    SharedState, StateChangedEvent,
+    MultiAgentFormatter,
+    sequential, fanout, chatroom, groupchat, debate,
+)
+from easyagent.chat.strategies import (
+    Routing, Broadcast, Direct, Pipeline,
+    TurnTaking, Conducted, Reactive, RoundRobin, Random, Weighted, Selected, Manual,
+    StopCondition, MaxRounds, Idle, AfterAllSpoken, OnPredicate, OnSharedKey, AnyOf, AllOf,
+    Summarize, LastMessage, Aggregate, ByJudge, FromSharedState, Custom,
+)
 
-```python
-from easyagent.context import FullContext, SlidingWindowContext, SummaryContext
-from easyagent.memory import InMemoryMemory
+# 进阶：runtime 层
 from easyagent.runtime import (
-    BaseRuntime, TickBasedRuntime, PipelineRuntime,
+    BaseRuntime, TickBasedRuntime,
     ParallelRuntime, SequentialRuntime, ShuffledRuntime,
-    Parallel, Sequential, Shuffled,                 # SchedulePolicy
-    DeliverToRecipients, TickDriven,                # StepPolicy
-    StopWhenIdle, StopAfterTicks, StopAfterEvents,  # StopPolicy
+    Parallel, Sequential, Shuffled,                  # SchedulePolicy
+    DeliverToRecipients, TickDriven,                 # StepPolicy
+    StopWhenIdle, StopAfterTicks, StopAfterEvents,   # StopPolicy
     StopWhenMessageMatches, AnyOf,
-    SharedStore,
 )
 from easyagent.events import (
     BaseEvent, WaitEvent,
@@ -374,25 +404,24 @@ from easyagent.events import (
 )
 ```
 
-## 10. 命名速查
+## 11. 命名速查
 
-| 概念 | 类型 | 说明 |
-|---|---|---|
-| `Agent` / `BaseAgent` | 类 | 单轮 agent 定义 + Runtime 看到的最小契约 |
-| `ReactAgent` | 类 | ReAct 循环 + 工具调用 |
-| `SkillAgent` | 类 | ReactAgent + SKILL.md 按需加载 |
-| `SandboxAgent` | 类 | ReactAgent + 沙箱生命周期管理 |
-| `AgentSession` | 类 | agent 的运行实例（分身） |
-| `Runtime` / `TickBasedRuntime` | 类 | 多 session 执行环境 |
-| `PipelineRuntime` | 类 | 固定串行交接链 |
-| `EventBus` | 类 | 事件记录与分发 |
-| `MessageEvent` / `WaitEvent` | 类 | 通信原语 / Runtime 控制事件 |
-| `StepPolicy` | Protocol | 事件投递策略 |
-| `SchedulePolicy` | Protocol | 单 tick 内执行顺序 |
-| `StopPolicy` | Protocol | 终止条件 |
-| `session_class` | 类属性 | Agent 挂自定义 AgentSession 子类 |
-| `session.run` | 方法 | 跑到完成（单任务入口） |
-| `session.step` | 方法 | 跑一次 step |
-| `session.on_events` | 方法 | 处理 events，Runtime 入口 |
-| `runtime.add_agent` | 方法 | 添加一个 agent 并创建对应 session |
-| `runtime.send` | 方法 | 注入 seed 事件 |
+| 概念 | 类型 | 层 | 说明 |
+|---|---|---|---|
+| `Agent` / `BaseAgent` | 类 | agent | 单 agent 定义 + 最小契约 |
+| `ReactAgent` / `SkillAgent` / `SandboxAgent` | 类 | agent | 加上工具 / 技能 / 沙箱的 ReAct agent |
+| `AgentSession` | 类 | agent | agent 的运行实例（分身） |
+| **`Talker`** | Protocol | **chat** | 「能说话」的统一抽象 |
+| `LLMTalker` / `HumanTalker` / `RuntimeTalker` | 类 | chat | Talker 的具体实现 |
+| `ChatMessage` / `Identity` | 类 | chat | 用户层对话原语 |
+| **`Orchestrator`** | 类 | **chat** | 多 Talker 容器，自身也是 Talker |
+| `Routing` / `TurnTaking` / `StopCondition` / `Summarize` | Protocol | chat | Orchestrator 的四种策略 |
+| `sequential` / `fanout` / `chatroom` / `groupchat` / `debate` | 函数 | chat | preset 工厂 |
+| `SharedState` | 类 | chat | 黑板协作原语 |
+| `MultiAgentFormatter` | 类 | chat | 多 agent prompt 渲染（替代 SlidingWindowContext） |
+| **`Runtime`** / `TickBasedRuntime` | 类 | **runtime** | tick-based 多 session 执行环境 |
+| `EventBus` | 类 | events | 事件记录与分发（chat / runtime 共用） |
+| `MessageEvent` / `WaitEvent` | 类 | events | 通信原语 / Runtime 控制事件 |
+| `StepPolicy` / `SchedulePolicy` / `StopPolicy` | Protocol | runtime | 事件投递 / 单 tick 顺序 / 终止条件 |
+| `session.run` / `step` / `on_events` | 方法 | agent | 单任务 / 单步 / runtime 入口 |
+| `BaseAgent.observe(msg)` | 方法 | agent | 只看不回 |

@@ -124,13 +124,16 @@ Submodules expose advanced building blocks:
 from easyagent.context import FullContext, SlidingWindowContext, SummaryContext
 from easyagent.memory import InMemoryMemory
 from easyagent.runtime import (
-    BaseRuntime, TickBasedRuntime, PipelineRuntime,
+    BaseRuntime, TickBasedRuntime,
     ParallelRuntime, SequentialRuntime, ShuffledRuntime,
     Parallel, Sequential, Shuffled,                  # SchedulePolicy
     DeliverToRecipients, TickDriven,                 # StepPolicy
     StopWhenIdle, StopAfterTicks, StopAfterEvents,   # StopPolicy
     StopWhenMessageMatches, AnyOf,
-    SharedStore,
+)
+from easyagent.chat import (
+    ChatMessage, Identity, LLMTalker, Orchestrator, SharedState,
+    sequential, fanout, debate, chatroom, groupchat,
 )
 from easyagent.events import (
     BaseEvent, WaitEvent,
@@ -148,25 +151,26 @@ loading and sandbox lifecycle management respectively.
 The examples are ordered by layer. Each one introduces one new idea:
 
 ```bash
+# Single agent (00–06)
 python examples/00_model_call.py             # Just call the model
 python examples/01_single_turn_agent.py      # Compose a minimal Agent
 python examples/02_memory_and_context.py     # Memory + Context
-python examples/03_react_with_tools.py       # ReactAgent + Tool
+python examples/03_react_with_tools.py       # ReactAgent + tool calls
 python examples/04_skills_lazy_loading.py    # SkillAgent (SKILL.md packages)
 python examples/05_sandbox_agent.py          # SandboxAgent (bash, write/read file)
-python examples/06_pipeline_runtime.py       # Linear multi-agent: PipelineRuntime
-python examples/07_event_basics.py           # MessageEvent + EventBus
-python examples/08_broadcast_runtime.py      # TickBasedRuntime + DeliverToRecipients
-python examples/09_customize_session.py      # Customize AgentSession behaviour
-python examples/10_runtime_policies.py       # TickDriven + Shuffled
-python examples/11_group_chat.py             # Three-agent emergent group chat
-python examples/12_custom_capability.py      # Custom tool
-```
+python examples/06_custom_tool.py            # Define your own tool
 
-A richer interactive demo (human-in-the-loop group chat) is also available:
+# Multi-agent via the chat layer (07–13)
+python examples/07_two_agents_talk.py        # Talker protocol: await alice(msg)
+python examples/08_sequential.py             # Linear pipeline preset
+python examples/09_chatroom.py               # Manual turn-taking + if/else
+python examples/10_groupchat.py              # LLM picks next via msg.to
+python examples/11_debate_and_judge.py       # Third-party arbitration
+python examples/12_nested.py                 # Orchestrator-as-Talker, nesting
+python examples/13_shared_state.py           # Blackboard collaboration
 
-```bash
-python examples/group_chat_demo.py
+# Advanced: tick-based runtime (14)
+python examples/14_advanced_runtime.py       # Autonomous group chat with policies
 ```
 
 ## Tools
@@ -247,10 +251,35 @@ read_skill_file     # read one file
 run_skill_script    # execute a script under scripts/
 ```
 
-## Runtime
+## Multi-agent (chat layer)
 
-Any `BaseAgent` joins a runtime by overriding `AgentSession.on_events` (or
-`step`). A few presets cover the common scheduling shapes:
+For most multi-agent flows, reach for the chat layer rather than the
+runtime layer. Wrap any `BaseAgent` as an `LLMTalker`, then compose with
+one of the presets:
+
+```python
+from easyagent import LiteLLMModel, ReactAgent
+from easyagent.chat import LLMTalker, sequential
+
+model = LiteLLMModel("gpt-4o-mini")
+researcher = LLMTalker(ReactAgent(model=model, name="researcher", system_prompt="..."))
+writer     = LLMTalker(ReactAgent(model=model, name="writer",     system_prompt="..."))
+reviewer   = LLMTalker(ReactAgent(model=model, name="reviewer",   system_prompt="..."))
+
+final = await sequential([researcher, writer, reviewer], "Write a product blurb.")
+```
+
+Available presets: `sequential` / `fanout` / `chatroom` / `groupchat` /
+`debate`. They are all thin factories over `Orchestrator`, which itself
+implements the Talker protocol — meaning any pipeline can be nested
+inside another. See the `examples/07_*` through `examples/13_*` files
+for one-concept-per-example walkthroughs.
+
+## Runtime (advanced)
+
+The runtime layer is for tick-based scheduling and autonomous group
+simulation — cases where each agent runs asynchronously and the system
+advances in discrete ticks under custom step / stop / schedule policies.
 
 ```python
 from easyagent import MessageEvent
@@ -273,29 +302,21 @@ result = await runtime.run([
 ])
 ```
 
-For a fixed linear hand-off chain, use `PipelineRuntime`:
-
-```python
-from easyagent.runtime import PipelineRuntime
-
-pipeline = PipelineRuntime([researcher, writer, reviewer])
-result = await pipeline.run("Write a one-paragraph product blurb.")
-```
-
-See [docs/runtime_walkthrough.md](docs/runtime_walkthrough.md) for a full
-walkthrough of how the runtime, policies, and events interact.
+A runtime can also be wrapped as a Talker (`RuntimeTalker`) and dropped
+into the chat layer — the two layers compose either direction.
 
 ## Module Layout
 
 ```text
 easyagent/
 ├── agent/      # Agent, ReactAgent, SkillAgent, SandboxAgent, AgentSession
+├── chat/       # ChatMessage, Talker, Orchestrator, presets, MultiAgentFormatter
 ├── context/    # FullContext, SlidingWindowContext, SummaryContext
 ├── events/     # MessageEvent, WaitEvent, EventBus, telemetry events
 ├── memory/     # InMemoryMemory
 ├── model/      # LiteLLMModel + Message schema
 ├── prompt/     # System-prompt builders
-├── runtime/    # TickBasedRuntime, PipelineRuntime, policies, SharedStore
+├── runtime/    # TickBasedRuntime, policies (advanced/tick-based simulation)
 ├── sandbox/    # Local / Docker sandboxes
 ├── skill/      # SKILL.md loading
 ├── tool/       # Tool registry + built-ins (bash, file, web, end)

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "easy-agent-sdk"
 version = "0.3.0"
-description = "A lightweight agent system built on LiteLLM with loop, memory/context, capability, tool, skill, and sandbox abstractions."
+description = "A lightweight agent SDK built on LiteLLM, with single-agent (ReactAgent / SkillAgent / SandboxAgent), tick-driven runtime, and chat-layer multi-agent abstractions."
 readme = "README.md"
 license = {text = "MIT"}
 authors = [

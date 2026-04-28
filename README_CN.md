@@ -118,13 +118,16 @@ from easyagent import (
 from easyagent.context import FullContext, SlidingWindowContext, SummaryContext
 from easyagent.memory import InMemoryMemory
 from easyagent.runtime import (
-    BaseRuntime, TickBasedRuntime, PipelineRuntime,
+    BaseRuntime, TickBasedRuntime,
     ParallelRuntime, SequentialRuntime, ShuffledRuntime,
     Parallel, Sequential, Shuffled,                  # SchedulePolicy
     DeliverToRecipients, TickDriven,                 # StepPolicy
     StopWhenIdle, StopAfterTicks, StopAfterEvents,   # StopPolicy
     StopWhenMessageMatches, AnyOf,
-    SharedStore,
+)
+from easyagent.chat import (
+    ChatMessage, Identity, LLMTalker, Orchestrator, SharedState,
+    sequential, fanout, debate, chatroom, groupchat,
 )
 from easyagent.events import (
     BaseEvent, WaitEvent,
@@ -141,25 +144,26 @@ from easyagent.events import (
 examples 按层级排序，每个示例只引入一个新概念：
 
 ```bash
+# 单 agent（00–06）
 python examples/00_model_call.py             # 只调模型
 python examples/01_single_turn_agent.py      # 最小 Agent
 python examples/02_memory_and_context.py     # Memory + Context
-python examples/03_react_with_tools.py       # ReactAgent + Tool
+python examples/03_react_with_tools.py       # ReactAgent + 工具调用
 python examples/04_skills_lazy_loading.py    # SkillAgent（SKILL.md 包）
-python examples/05_sandbox_agent.py          # SandboxAgent（bash/读写文件）
-python examples/06_pipeline_runtime.py       # 串行多 agent：PipelineRuntime
-python examples/07_event_basics.py           # MessageEvent + EventBus
-python examples/08_broadcast_runtime.py      # TickBasedRuntime + DeliverToRecipients
-python examples/09_customize_session.py      # 定制 AgentSession 行为
-python examples/10_runtime_policies.py       # TickDriven + Shuffled
-python examples/11_group_chat.py             # 三人涌现群聊
-python examples/12_custom_capability.py      # 自定义工具
-```
+python examples/05_sandbox_agent.py          # SandboxAgent（bash / 读写文件）
+python examples/06_custom_tool.py            # 自定义工具
 
-人机互动版本（人类作为参与者实时加入群聊）：
+# 多 agent：chat 层（07–13）
+python examples/07_two_agents_talk.py        # Talker 协议：await alice(msg)
+python examples/08_sequential.py             # 线性流水线 preset
+python examples/09_chatroom.py               # 用户写 if/else 决定下一棒
+python examples/10_groupchat.py              # LLM 在 msg.to 里 @ 下一棒
+python examples/11_debate_and_judge.py       # 第三方仲裁产出结论
+python examples/12_nested.py                 # Orchestrator 是 Talker，嵌套
+python examples/13_shared_state.py           # 黑板协作（不通过消息）
 
-```bash
-python examples/group_chat_demo.py
+# 进阶：tick 调度的 runtime 层（14）
+python examples/14_advanced_runtime.py       # 自主群聊 + policy 体系
 ```
 
 ## Tools
@@ -239,10 +243,32 @@ read_skill_file     # 读取某个文件
 run_skill_script    # 执行 scripts/ 下的脚本
 ```
 
-## Runtime
+## 多 agent（chat 层）
 
-任何 `BaseAgent` 只要重写 `AgentSession.on_events`（或 `step`）就可以接入
-Runtime。常用调度形态有几个预设：
+绝大多数多 agent 任务用 chat 层就够。把任意 `BaseAgent` 包成 `LLMTalker`，
+然后用 preset 组合：
+
+```python
+from easyagent import LiteLLMModel, ReactAgent
+from easyagent.chat import LLMTalker, sequential
+
+model = LiteLLMModel("gpt-4o-mini")
+researcher = LLMTalker(ReactAgent(model=model, name="researcher", system_prompt="..."))
+writer     = LLMTalker(ReactAgent(model=model, name="writer",     system_prompt="..."))
+reviewer   = LLMTalker(ReactAgent(model=model, name="reviewer",   system_prompt="..."))
+
+final = await sequential([researcher, writer, reviewer], "写一段产品介绍。")
+```
+
+可用 preset：`sequential` / `fanout` / `chatroom` / `groupchat` / `debate`。
+它们都是 `Orchestrator` 的薄工厂；`Orchestrator` 自己也实现 Talker 协议，
+所以任意一个 pipeline 都能嵌进另一个。每个形态的最小例子
+见 `examples/07_*` 到 `examples/13_*`。
+
+## Runtime（进阶）
+
+Runtime 层适合 tick 调度和自主群体仿真——每个 agent 异步独立跑、整个
+系统按 tick 推进、用户可定制 step / stop / schedule policy。
 
 ```python
 from easyagent import MessageEvent
@@ -265,29 +291,20 @@ result = await runtime.run([
 ])
 ```
 
-如果是固定的串行交接链，使用 `PipelineRuntime`：
-
-```python
-from easyagent.runtime import PipelineRuntime
-
-pipeline = PipelineRuntime([researcher, writer, reviewer])
-result = await pipeline.run("写一段产品说明。")
-```
-
-完整 Runtime / 策略 / 事件的运作流程参见
-[docs/runtime_walkthrough.md](docs/runtime_walkthrough.md)。
+Runtime 也可以包成 Talker（`RuntimeTalker`）塞进 chat 层——两层互通。
 
 ## 模块结构
 
 ```text
 easyagent/
 ├── agent/      # Agent, ReactAgent, SkillAgent, SandboxAgent, AgentSession
+├── chat/       # ChatMessage, Talker, Orchestrator, presets, MultiAgentFormatter
 ├── context/    # FullContext, SlidingWindowContext, SummaryContext
 ├── events/     # MessageEvent, WaitEvent, EventBus, telemetry events
 ├── memory/     # InMemoryMemory
 ├── model/      # LiteLLMModel + Message schema
 ├── prompt/     # System prompt 构造
-├── runtime/    # TickBasedRuntime, PipelineRuntime, 策略, SharedStore
+├── runtime/    # TickBasedRuntime, 策略（进阶 / tick 仿真）
 ├── sandbox/    # Local / Docker 沙箱
 ├── skill/      # SKILL.md 加载
 ├── tool/       # 工具注册与内置工具（bash / file / web / end）

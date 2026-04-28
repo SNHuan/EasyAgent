@@ -5,68 +5,72 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-04-25
+## [0.3.0] - 2026-04-28
 
-Complete redesign of the multi-agent layer. The previous `Supervisor`, `Session`,
-and `Team` APIs have been replaced by a single unified set of primitives.
+The biggest release since the SDK started. The runtime is rebuilt around three layers — a single-agent ladder (`Agent` → `ReactAgent` → `SkillAgent` / `SandboxAgent`), a tick-driven runtime layer for autonomous group simulation, and a **chat layer** that is the new default entry point for multi-agent collaboration.
 
 ### Added
 
-**Communication primitives**
+**Single-agent layer**
+- `BaseAgent` / `Agent` (single-turn) / `ReactAgent` (ReAct loop) / `SkillAgent` / `SandboxAgent` — clean inheritance chain, with loop logic now living in `agent.step()`.
+- `AgentSession` — the per-execution instance (renamed from `AgentRuntime`). New `on_events(events) -> list[BaseEvent]` hook for multi-agent participation; default delivers the last incoming `MessageEvent` and replies preserving visibility (broadcast-on-broadcast, DM-back-to-sender).
+- `BaseAgent.observe(msg, *, session=None, sender=None)` — read-only memory absorption surfaced at the agent level so a plain `BaseAgent` can play the "watch the conversation" role without the chat-layer wrapper.
+- `SkillAgent` — auto-registers `load_skill` / `list_skill_files` / `read_skill_file` / `run_skill_script` so the model can discover and load `SKILL.md` packages on demand.
+- `SandboxAgent` — auto-registers `bash` / `write_file` / `read_file` and manages sandbox lifecycle via `on_session_start` / `on_session_end`.
+- `Message.name` — optional sender name, used by the chat layer's multi-agent formatter to disambiguate self vs. others in shared memory.
+- `Message.to_api_dict()` — excludes `reasoning_content` by default; provider-specific replay can opt in with `include_reasoning=True`.
+
+**Tools**
+- `EndTool` — the canonical "I'm done" tool. `ReactAgent` installs it by default (`auto_end=True`); calling `end(data=...)` stops the loop and publishes `StopEvent` for observability.
+- `ThinkTool` — side-effect-free scratch pad. The `thought` argument lands in tool-call history so the model can re-read its own reasoning. Installed in `ReactAgent` by default (`auto_think=True`).
+- `ToolManager` / `SkillManager` are now normal registries instead of constructor-level singletons. `register_tool` / `register_skill` target process default registries; agents can receive explicit managers for isolation.
+
+**Events and runtime (`easyagent.events`, `easyagent.runtime`)**
+- `BaseEvent`, `EventBus`, plus telemetry events (`LLMCalledEvent`, `ToolCalledEvent`, `ToolResultEvent`, `StopEvent`).
 - `MessageEvent` — the only communication primitive. Visibility (`to="*"` broadcast, `to=frozenset(...)` DM/subgroup) is a property of the message, not a channel object.
 - `WaitEvent` — an agent returns this to skip the current tick and be re-delivered next round.
-- `EventBus` — unchanged, but now the single source of truth for all events across the system.
+- `BaseRuntime` — minimal abstract base: holds agents, bus, state. Stable `name` property used by `RuntimeTalker`.
+- `TickBasedRuntime` — tick loop with `StepPolicy` / `SchedulePolicy` / `StopPolicy`, `WaitEvent` handling, and `on_undeliverable` hook for human-in-the-loop. Each tick boundary and the chosen execution order are logged at INFO level.
+- Presets: `ParallelRuntime` / `SequentialRuntime` / `ShuffledRuntime` (TickBasedRuntime with `schedule_policy` pre-filled).
+- Policies: `DeliverToRecipients`, `TickDriven` (StepPolicy); `Parallel`, `Sequential`, `Shuffled` (SchedulePolicy); `StopWhenIdle`, `StopAfterTicks`, `StopAfterEvents`, `StopWhenMessageMatches`, `AnyOf` (StopPolicy).
+- `BaseRuntime` injects `tick` / `max_ticks` into `AgentSession.metadata` so agents can sense time pressure.
 
-**Runtime abstractions**
-- `BaseRuntime` — minimal abstract base: holds agents, bus, state. `run()` is abstract. No tick logic, no policies.
-- `TickBasedRuntime` — intermediate layer adding tick loop, `StepPolicy` / `SchedulePolicy` / `StopPolicy`, `WaitEvent` handling, and `on_undeliverable` hook for human-in-the-loop.
-- `ParallelRuntime` / `SequentialRuntime` / `ShuffledRuntime` — `TickBasedRuntime` presets that pre-fill `schedule_policy`.
-- `PipelineRuntime` — fixed linear hand-off chain (no tick loop). Non-terminal agents auto-receive a pipeline-aware `end` tool.
+**Chat layer (`easyagent.chat`) — recommended starting point for multi-agent**
+- `ChatMessage` / `Identity` — user-facing conversation primitives. Routing (`to`, `channel`) lives on the message itself.
+- `Talker` protocol with three adapters: `LLMTalker` (wraps any `BaseAgent`), `HumanTalker` (queue/UI input), `RuntimeTalker` (wraps any `BaseRuntime`).
+- `Orchestrator` — multi-Talker container. Itself implements `Talker`, so containers nest natively.
+- Strategies along four axes, each pluggable, with built-ins:
+  - **Routing**: `Broadcast`, `Direct`, `Pipeline`.
+  - **TurnTaking**: `Conducted`, `Reactive`, `RoundRobin`, `Random`, `Weighted`, `Selected`, `Manual`.
+  - **StopCondition**: `MaxRounds`, `Idle`, `AfterAllSpoken`, `OnPredicate`, `OnSharedKey`, `AnyOf`, `AllOf`.
+  - **Summarize**: `LastMessage`, `Aggregate`, `ByJudge`, `FromSharedState`, `Custom`.
+- Presets: `sequential`, `fanout`, `chatroom`, `groupchat`, `debate`.
+- `MultiAgentFormatter` — renders multi-speaker memory into a per-Talker prompt with `<history>` folding so an agent never mistakes others' words for its own. Auto-installed by `LLMTalker`; degrades to standard formatting for single-agent flows.
+- `SharedState` — versioned KV blackboard with subscriptions, async `wait_for`, and a bus bridge (`StateChangedEvent`).
 
-**Policies**
-- `DeliverToRecipients` — routes `MessageEvent` by `to` field; non-message events go to all sessions.
-- `TickDriven` — ignores event stream, sends a tick signal to all sessions each round.
-- `Parallel` / `Sequential` / `Shuffled` — `SchedulePolicy` implementations controlling per-tick execution order.
-- `StopWhenIdle` — halts when no new events are produced.
-- `StopAfterTicks` — halts after N ticks (1-based counting).
-- `StopAfterEvents` — total event budget.
-- `StopWhenMessageMatches` — user-defined predicate on `MessageEvent`.
-- `AnyOf` — compose multiple stop policies.
+**Examples (single-concept-per-step ladder, 00–14)**
+- `00`–`06` single-agent: `model_call`, `single_turn_agent`, `memory_and_context`, `react_with_tools`, `skills_lazy_loading`, `sandbox_agent`, `custom_tool`.
+- `07`–`13` chat layer: `two_agents_talk`, `sequential`, `chatroom`, `groupchat`, `debate_and_judge`, `nested`, `shared_state`.
+- `14_advanced_runtime` — tick-based simulation with custom session and policies.
 
-**Agent**
-- Loop logic moved into agent `step()` methods. `Agent.step()` is single-turn; `ReactAgent.step()` is one ReAct iteration (LLM call + tool execution).
-- New agent inheritance chain: `Agent` (single-turn) → `ReactAgent` (ReAct loop with tools) → `SkillAgent` / `SandboxAgent`.
-- `AgentSession.on_events(events: list[BaseEvent]) → list[BaseEvent]` — new hook for multi-agent participation. Default delivers the last incoming `MessageEvent` to the loop and replies preserving visibility (broadcast-on-broadcast, DM-back-to-sender). Subclasses override to customize routing, `@xxx` parsing, etc.
-- `SharedStore` — optional versioned KV store for sharing artifacts between agents.
-
-**Tick awareness**
-- `BaseRuntime._call_agent` injects `tick` and `max_ticks` into `AgentSession.metadata` before each `on_events` call, so agents can sense time pressure.
-- `StopAfterTicks` writes its limit into `RuntimeState.max_ticks` so policies and agents can read it.
-- `TickBasedRuntime` logs each tick boundary and the schedule policy's chosen execution order at INFO level for clearer multi-agent traces.
+**Docs**
+- New `docs/architecture.md` — single architecture overview replacing the scattered prior design notes.
+- `README.md` / `README_CN.md` rewritten around the new layers (single-agent → chat → runtime) and the renumbered example ladder.
 
 ### Changed
 
-- `AgentRuntime` has been renamed to `AgentSession`; `create_runtime()` is now `create_session()`.
-- `ToolManager` and `SkillManager` are normal registries instead of constructor-level singletons. `register_tool` / `register_skill` target process default registries, while agents can receive explicit managers for isolation.
-- `ReactAgent` is the canonical ReAct loop agent (consolidating prompt construction, tool-call formatting, and telemetry emission). `SkillAgent` and `SandboxAgent` now subclass `ReactAgent`.
-- `Message.to_api_dict()` excludes `reasoning_content` by default. Provider-specific replay can opt in with `include_reasoning=True`.
-- A plain text LLM response (no tool calls, no end token) is now treated as a completed answer in the ReAct loop instead of `continue`. This fixes infinite loops in group-chat scenarios.
-- `RuntimeState.tick` now starts at 1 (incremented at the top of the loop, before execution).
-- `StopAfterTicks` uses `>` instead of `>=` so `max_ticks=5` means "run 5 full ticks".
+- `AgentRuntime` → `AgentSession`; `create_runtime()` → `create_session()`.
+- `ReactAgent` is the canonical ReAct loop agent (consolidates prompt construction, tool-call formatting, and telemetry emission). `SkillAgent` and `SandboxAgent` now subclass `ReactAgent`.
+- A plain-text LLM response (no tool calls, no end token) is treated as a completed answer in the ReAct loop instead of "continue" — fixes infinite loops in group-chat scenarios.
+- Top-level `easyagent` package surface is intentionally smaller: `Agent` / `ReactAgent` / `SkillAgent` / `SandboxAgent` / `AgentSession` / `AgentRunResult` / `LiteLLMModel` / `Message` / `MessageEvent` / `EventBus` / `ToolManager` / `SkillManager` / `register_tool`. Submodule access for everything else.
 
 ### Removed
 
-- `easyagent/supervisor/` — replaced by coordinator agent pattern in user space.
-- `easyagent/session/` — replaced by `Runtime` + `EventBus`.
-- `easyagent/loop/` — `SingleTurnLoop` / `ReActLoop` are gone; loop logic is now part of the agent's `step()` method.
-- `easyagent/capability/` — `ToolCalling` / `Skills` / `Sandbox` capabilities replaced by dedicated `ReactAgent` / `SkillAgent` / `SandboxAgent` subclasses.
-- `easyagent/pipeline/` (`Team`, `BaseNode`, `BasePipeline`) — replaced by `PipelineRuntime` in `easyagent/runtime/pipeline.py`.
-- `SessionEvent` base class — all events now inherit directly from `BaseEvent`.
-- `CommunicationEvent` alias — use `MessageEvent` directly.
-- `Agent.on(event_type, handler)` — old Session-era event subscription API.
-- `ChatAgent` / `ChatDecision` — group-chat behaviour is now expressed by overriding `on_events` on any `AgentSession` subclass.
-- All `supervisor_*`, `team_*`, `multi_agent_demo`, `session_agent_demo` examples.
-- Leaked `20260424_*_supervisor_task/` runtime artefact directories.
+- `easyagent/loop/` (`SingleTurnLoop`, `ReActLoop`) — loop logic now lives in `agent.step()`.
+- `easyagent/capability/` (`ToolCapability`, `SkillCapability`, `SandboxCapability`) — replaced by dedicated `ReactAgent` / `SkillAgent` / `SandboxAgent` subclasses.
+- `easyagent/pipeline/` (`Team`, `BaseNode`, `BasePipeline`) — superseded by `chat.sequential` for static pipelines and `Orchestrator(turn_taking=Conducted)` for custom containers.
+- Stale design docs under `docs/` (`agent-capability-architecture.md`, `agent-system-design-new.md`, `current-architecture-discussion-notes.md`).
+- Old examples (`simple_react_agent.py`, `session_agent_demo.py`, `tool_skill_sandbox_demo.py`) — superseded by the 00–14 ladder.
 
 ### Fixed
 
