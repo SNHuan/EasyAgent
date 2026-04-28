@@ -70,14 +70,25 @@ class BaseRuntime(ABC):
         agents: dict[AgentId, "BaseAgent"] | None = None,
         *,
         bus: EventBus | None = None,
+        name: str = "runtime",
     ):
         self._bus = bus or EventBus()
         self.sessions: dict[AgentId, "AgentSession"] = {}
         self._log = _log
         self._state = RuntimeState(agent_ids=[])
+        self._name = name
 
         for agent_name, agent in (agents or {}).items():
             self.add_agent(agent_name, agent)
+
+    @property
+    def name(self) -> str:
+        """Stable container name. Used by ``RuntimeTalker`` so callers
+        of a runtime-as-Talker see this name as the sender of the
+        runtime's outbound message rather than the name of whichever
+        internal agent happened to speak last.
+        """
+        return self._name
 
     @property
     def bus(self) -> EventBus:
@@ -175,7 +186,6 @@ class BaseRuntime(ABC):
         their own ``run`` signature. Examples:
 
           - ``TickBasedRuntime.run(seed_events: list[BaseEvent] | None = None)``
-          - ``PipelineRuntime.run(user_input: str = "")``
         """
 
 
@@ -200,8 +210,9 @@ class TickBasedRuntime(BaseRuntime):
         stop_policy: StopPolicy,
         schedule_policy: SchedulePolicy | None = None,
         bus: EventBus | None = None,
+        name: str = "tick_runtime",
     ):
-        super().__init__(agents, bus=bus)
+        super().__init__(agents, bus=bus, name=name)
         self._step_policy = step_policy
         self._stop_policy = stop_policy
         if schedule_policy is None:
@@ -357,6 +368,7 @@ class ParallelRuntime(TickBasedRuntime):
         step_policy: StepPolicy,
         stop_policy: StopPolicy,
         bus: EventBus | None = None,
+        name: str = "parallel_runtime",
     ):
         super().__init__(
             agents,
@@ -364,6 +376,7 @@ class ParallelRuntime(TickBasedRuntime):
             stop_policy=stop_policy,
             schedule_policy=Parallel(),
             bus=bus,
+            name=name,
         )
 
 
@@ -377,6 +390,7 @@ class SequentialRuntime(TickBasedRuntime):
         step_policy: StepPolicy,
         stop_policy: StopPolicy,
         bus: EventBus | None = None,
+        name: str = "sequential_runtime",
     ):
         super().__init__(
             agents,
@@ -384,6 +398,7 @@ class SequentialRuntime(TickBasedRuntime):
             stop_policy=stop_policy,
             schedule_policy=Sequential(),
             bus=bus,
+            name=name,
         )
 
 
@@ -397,6 +412,7 @@ class ShuffledRuntime(TickBasedRuntime):
         step_policy: StepPolicy,
         stop_policy: StopPolicy,
         bus: EventBus | None = None,
+        name: str = "shuffled_runtime",
     ):
         super().__init__(
             agents,
@@ -404,4 +420,5 @@ class ShuffledRuntime(TickBasedRuntime):
             stop_policy=stop_policy,
             schedule_policy=Shuffled(),
             bus=bus,
+            name=name,
         )

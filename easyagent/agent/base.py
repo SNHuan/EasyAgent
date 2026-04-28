@@ -3,6 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from easyagent.model.schema import Message
+
 if TYPE_CHECKING:
     from easyagent.agent.session import AgentRunResult, AgentSession, LoopStepResult
 
@@ -28,3 +30,32 @@ class BaseAgent(ABC):
 
     async def step(self, session: "AgentSession") -> "LoopStepResult":
         raise NotImplementedError
+
+    async def observe(
+        self,
+        message: Message | str,
+        *,
+        session: "AgentSession | None" = None,
+        sender: str | None = None,
+    ) -> None:
+        """Absorb a message into the session's memory without triggering a reply.
+
+        This is the Talker-style read-only contract surfaced at the
+        BaseAgent level so callers can use a plain agent for the
+        "watch the conversation" half of multi-agent without needing
+        the chat layer's ``LLMTalker`` wrapper.
+
+        Strings are wrapped as ``Message.user(...)`` (with optional
+        ``name=sender`` for multi-agent attribution); already-built
+        ``Message`` objects pass through. If no session is provided a
+        fresh one is created — practical for single-shot side calls,
+        though most users will want to manage their own session and
+        pass it explicitly.
+        """
+        active = session or self.create_session()
+        if isinstance(message, str):
+            msg = Message.user(message, name=sender)
+        else:
+            msg = message
+        # ``add_message`` lives on AgentSession and writes through to memory.
+        active.add_message(msg)
