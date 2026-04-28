@@ -1,21 +1,22 @@
-"""第 11 层：完整群聊（多 agent 涌现）。
+"""第 14 层（进阶）：runtime 层 —— tick 调度与自主仿真。
 
-09 之前我们直接重写 ``AgentSession.on_events`` 来手动决定回复发给谁。
-这能用，但路由逻辑藏在文本解析里：模型多输出一个空格、漏一个 @、
-中文标点和英文标点混用，路由就坏了。
+到 13 你已经看完了 chat 层的全部用法。**绝大多数多 agent 任务用 chat
+层 5 个 preset 就够了**——这一层是给两类用户准备的进阶选项：
 
-本例采用更"工具化"的写法：
+  (a) 你要做**社会仿真 / 自主群体**：每个 agent 异步独立跑、整个系统
+      按 tick 推进、stop 由"群体何时空闲"决定；
+  (b) 你需要**精细控制调度**：parallel / sequential / shuffled 谁先谁后、
+      是否允许并发批次、是否每 tick 都给所有 agent 一次发言机会。
 
-  • 给每个 agent 注入一个自定义 ``send_message`` 工具，
-  • 工具参数是 ``[{"to": ..., "content": ...}, ...]`` —— 每项一个收件人，
-    ``"to"`` 用具体名字（``"alice"``）或 ``"*"`` 表示广播，
-  • LLM 直接选择发给谁——不用再做正则/字符串解析，
-  • 调用一次 ``send_message`` 就当做"这一轮发完了"，循环结束。
+chat 层把这些抽象成"调用方写 await"的同步形态；runtime 层把它们做成
+"事件总线 + 三类 policy"的异步形态——两层互不替代，**通过 RuntimeTalker
+桥接**：把整个 runtime 当成一个 Talker 嵌进 chat 层；或反过来把单个
+chat-layer Orchestrator 当成 runtime 的 agent。
 
-所以 GroupChatSession 只负责：把消息倒进 memory → 跑一次 loop →
-把 session 的"出件箱"翻译成 MessageEvent。
-
-人机交互版（人类作为参与者实时参与）见 ``examples/group_chat_demo.py``。
+本例展示一个**最小自主群聊**：alice/bob/carol 在每 tick 自由说话，
+runtime 在所有人都沉默一轮后停止。和 09 的 chatroom 对比：
+  - chatroom: 用户写 ``await room.x()`` 决定每一棒；
+  - 本层:     runtime 自己 tick 推进，alice/bob/carol 各自独立"想说就说"。
 """
 
 from __future__ import annotations
@@ -41,15 +42,14 @@ from easyagent.runtime import (
 )
 
 
-# ── 自定义工具：让 LLM 用结构化方式发言 ─────────────────────────────────────
+# ── 工具：让 LLM 用结构化方式发言（避免文本路由的脆弱性） ─────────────
+
 
 class SendChatMessage:
-    """LLM 在群聊里发言的唯一渠道。
+    """群聊里发言的唯一渠道。
 
-    参数 ``messages`` 是一个 list，每项 ``{"to": <recipient>, "content": <text>}``。
-      - ``to`` 是某个成员名（如 ``"alice"``）或 ``"*"`` 表示广播；
-      - 同一次调用可以包含多条，发不同内容给不同人；
-      - 空 list 表示这一轮选择沉默。
+    ``messages`` 列表每项是 ``{"to": <name 或 *>, "content": <text>}``。
+    一次 ``send_message`` 调用结束本 agent 这一 tick 的回合。
     """
 
     name = "send_message"
@@ -64,25 +64,11 @@ class SendChatMessage:
         "properties": {
             "messages": {
                 "type": "array",
-                "description": (
-                    "List of messages to send this turn. Each item routes to "
-                    "one recipient. You can include multiple items to address "
-                    "different participants in the same turn."
-                ),
                 "items": {
                     "type": "object",
                     "properties": {
-                        "to": {
-                            "type": "string",
-                            "description": (
-                                "Recipient: a participant name (e.g. 'alice') "
-                                "or '*' to broadcast to everyone."
-                            ),
-                        },
-                        "content": {
-                            "type": "string",
-                            "description": "The message text.",
-                        },
+                        "to": {"type": "string", "description": "name or '*'"},
+                        "content": {"type": "string"},
                     },
                     "required": ["to", "content"],
                 },
@@ -91,8 +77,7 @@ class SendChatMessage:
         "required": ["messages"],
     }
 
-    def init(self) -> None:
-        pass
+    def init(self) -> None: ...
 
     def execute(
         self,
@@ -103,24 +88,19 @@ class SendChatMessage:
     ) -> str:
         outbox: list[tuple[str, str]] = session.loop_state.setdefault("__chat_outbox__", [])
         for item in messages or []:
-            target = (item.get("to") or "").strip()
-            content = (item.get("content") or "").strip()
-            if not target or not content:
-                continue
-            outbox.append((target, content))
-        # 一次 send_message 就是一轮发言：发完即结束。
+            t = (item.get("to") or "").strip()
+            c = (item.get("content") or "").strip()
+            if t and c:
+                outbox.append((t, c))
         session.loop_state["__early_exit__"] = "turn_complete"
-        if not outbox:
-            return "Stayed silent this turn."
-        targets = ", ".join(t for t, _ in outbox)
-        return f"Sent to: {targets}"
+        return f"Sent to: {', '.join(t for t, _ in outbox)}" if outbox else "Stayed silent."
 
 
-# ── 自定义 session：把 events 喂给 loop，把 outbox 翻译成 events ─────────
+# ── 自定义 session：events ↔ outbox 翻译 ─────────────────────────────────
+
 
 class GroupChatSession(AgentSession):
     async def on_events(self, events: list[BaseEvent]) -> list[BaseEvent]:
-        # 注入：把别人发的群聊内容塞进 memory，让模型有上下文。
         injected = 0
         for event in events:
             if not isinstance(event, MessageEvent):
@@ -130,15 +110,10 @@ class GroupChatSession(AgentSession):
             tag = "对所有人说" if event.is_broadcast else "私信你"
             self.add_message(Message.user(f"[{event.sender} {tag}] {event.content}"))
             injected += 1
-
         if injected == 0:
             return []
 
-        # 直接驱动 step 循环，不走 invoke()。
-        # invoke() / run_session() 会强制再 add_message(Message.user(user_input))，
-        # 而我们上面已经把所有需要的上下文都注入 memory 了，再塞一个假的 user
-        # message 反而让模型搞不清"我该回应哪一条"。
-        # 模型看到 memory 末尾是 user 消息，OpenAI 协议本身就期待 assistant 回复。
+        # 直接驱动 step 循环（不通过 invoke，避免再注入一条假的 user msg）
         self.iteration_count = 0
         self.loop_steps.clear()
         result = await self.step()
@@ -147,7 +122,6 @@ class GroupChatSession(AgentSession):
             result = await self.step()
             self.loop_steps.append(result)
 
-        # 把 send_message 工具留在 outbox 里的内容翻译成事件。
         outbox: list[tuple[str, str]] = self.loop_state.pop("__chat_outbox__", [])
         replies: list[BaseEvent] = []
         for target, content in outbox:
@@ -160,22 +134,22 @@ class GroupChatAgent(ReactAgent):
     session_class = GroupChatSession
 
     def __init__(self, model: Any, *, name: str, system_prompt: str, **kwargs: Any):
-        # auto_end=False：群聊里"结束回合"只通过 send_message 表达，不要再
-        # 让模型见到 end 工具。否则它会被 REACT_SYSTEM_PROMPT 里"用 end 结束
-        # 任务"的规则带偏，根本不调 send_message。
         super().__init__(
             model,
             name=name,
             system_prompt=system_prompt,
             tools=[SendChatMessage],
-            auto_end=False,
+            auto_end=False,    # 群聊里"结束回合"通过 send_message 表达
             **kwargs,
         )
 
     def build_system_prompt(self, session: AgentSession) -> str:
-        # 不拼 REACT_SYSTEM_PROMPT——它的 "Completion Rules" 节明确要求用 end
-        # 工具收尾，与本场景"必须用 send_message 发言"的语义直接打架。
+        # 不拼默认的 REACT_SYSTEM_PROMPT —— 那段会推模型用 ``end`` 收尾，
+        # 与本场景"必须用 send_message"语义打架。
         return self._system_prompt
+
+
+# ── 主程序 ────────────────────────────────────────────────────────────────
 
 
 SYSTEM_PROMPT = """\
@@ -192,11 +166,11 @@ async def main() -> None:
             "bob":   GroupChatAgent(model=model, name="bob",   system_prompt=f"你是 bob。\n{SYSTEM_PROMPT}"),
             "carol": GroupChatAgent(model=model, name="carol", system_prompt=f"你是 carol。\n{SYSTEM_PROMPT}"),
         },
-        step_policy=DeliverToRecipients(),
+        step_policy=DeliverToRecipients(),     # 按 msg.to 投递
         stop_policy=AnyOf([StopWhenIdle(grace_steps=1), StopAfterTicks(max_ticks=4)]),
     )
 
-    # 订阅 bus 让消息边产生边打印（配合 runtime 的 tick / schedule 日志一起看）。
+    # 订阅 bus 实时打印（和 chat 层的 EventBus 是同一个东西）
     def on_message(m: MessageEvent) -> None:
         target = "所有人" if m.is_broadcast else "&".join(sorted(m.to))
         print(f"[{m.sender} -> {target}] {m.content}")
@@ -206,6 +180,18 @@ async def main() -> None:
     seed = MessageEvent(sender="user", to="*", content="周末一起吃个饭吧？")
     await runtime.run([seed])
 
+    # ── 关键观察 ───────────────────────────────────────────────────────
+    # 1. 这一层做到了 chat 层做不到的事：**真正的 tick 调度**——alice/bob/
+    #    carol 各自有 session，每 tick runtime 决定谁有事件可处理；
+    # 2. ``ShuffledRuntime`` 让每 tick 的发言顺序随机，模拟"谁先看到群消息
+    #    就谁先回复"的真实感；
+    # 3. ``StopWhenIdle(grace_steps=1)`` 让群体在所有人沉默一轮后自动停下；
+    # 4. **代价**：你写了 ~150 行（自定义工具 + 自定义 session + 三个
+    #    policy）。如果你的需求其实是"按顺序串三个 agent"，09 的 chatroom
+    #    或 08 的 sequential 五行就搞定。
+    #
+    # 选择标准：你需不需要 tick 调度 / stop policy / event bus 的精细
+    # 控制？如果**不**需要，留在 chat 层。
 
 if __name__ == "__main__":
     asyncio.run(main())
