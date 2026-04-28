@@ -1,17 +1,11 @@
 """第 09 层：chatroom —— 用户在循环里写 if/else 决定下一棒。
 
-08 的 sequential 顺序写死在 ``[t1, t2, t3]`` 里。但很多时候你需要**根据
-中间结果**决定下一步：审稿员说"通过"就直接发布，"需要修改"才送去改稿。
-这种**条件分支路由**是 sequential 给不了的。
+08 的 sequential 顺序写死在列表里。但很多时候你需要根据中间结果决定
+下一步：审稿员说"通过"就直接发布，"需要修改"才送去改稿。
 
-``chatroom`` 就是为这种情况准备的：
-  - ``async with chatroom([...]) as room:``
-  - 在块内手动 ``await room.<name>()`` 调任何成员；
-  - 每个成员的回复**自动**广播给其他成员（这是和 07 手写互调的区别）；
-  - 用户用普通 Python ``if/else`` 决定下一棒。
-
-技术名词叫 "manual turn-taking"——orchestrator 不再自动循环，调用方
-完全主导节奏。
+``chatroom`` 返回一个 ``ManualSession``，在 ``async with`` 块内通过
+``await room.<name>()`` 调任何成员。每个成员的回复自动进入共享 World，
+后续成员能看到上下文。用普通 Python if/else 决定下一棒。
 """
 
 from __future__ import annotations
@@ -24,13 +18,18 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from easyagent import LiteLLMModel, ReactAgent
-from easyagent.chat import LLMTalker, chatroom
+from easyagent import (
+    LiteLLMModel,
+    ReactAgent,
+    LLMEntity,
+    chatroom,
+)
 from easyagent.events import EventBus, MessageEvent
 
 
-def make(model: LiteLLMModel, name: str, system_prompt: str) -> LLMTalker:
-    return LLMTalker(
+def make(model: LiteLLMModel, name: str, system_prompt: str) -> LLMEntity:
+    return LLMEntity(
+        name,
         ReactAgent(
             model=model,
             name=name,
@@ -41,7 +40,6 @@ def make(model: LiteLLMModel, name: str, system_prompt: str) -> LLMTalker:
 
 
 def make_live_bus() -> EventBus:
-    """Subscribe a printer that fires the moment any member speaks."""
     bus = EventBus()
 
     def on_message(m: MessageEvent) -> None:
@@ -76,13 +74,12 @@ async def main() -> None:
     async with chatroom(
         [drafter, critic, fixer, publisher],
         announcement="主题：给开源 multi-agent 框架 EasyAgent 写一句宣传语。",
-        bus=make_live_bus(),       # 每位发言落地立刻打印
+        bus=make_live_bus(),
     ) as room:
         await room.drafter()
         verdict = await room.critic()
 
-        # ── 这里的 if/else 是 sequential 给不了的 ──
-        if verdict and "通过" in verdict.text:
+        if verdict and "通过" in verdict:
             print("\n→ critic 通过，直接发布")
             await room.publisher()
         else:
@@ -91,11 +88,8 @@ async def main() -> None:
             await room.publisher()
 
     # ── 关键观察 ───────────────────────────────────────────────────────
-    # 1. 每个成员的回复自动广播给其他三人——你不用自己管 observe；
-    # 2. critic 看到 drafter 的话、fixer 看到 drafter+critic 的话、
-    #    publisher 看到所有人的话；
-    # 3. 路由由你（人）决定。下一层 (10) 会演示 LLM **自己**决定路由
-    #    的对偶模式。
+    # 1. 每个成员的回复自动进入 ConversationWorld——后续成员看得到；
+    # 2. 路由由你（人）决定；下一层 (10) 演示 LLM 自己决定路由。
 
 
 if __name__ == "__main__":
