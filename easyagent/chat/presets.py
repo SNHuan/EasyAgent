@@ -7,8 +7,6 @@ strategies pre-configured. Users start here:
 
 If a preset doesn't fit, drop down to ``Orchestrator(...)`` directly
 and pick strategies à la carte.
-
-Design refs: ``docs/chat_layer_design.md`` §9.
 """
 
 from __future__ import annotations

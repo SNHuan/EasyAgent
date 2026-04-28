@@ -19,8 +19,6 @@ Five built-ins:
 
 Returning ``None`` from ``produce`` means "the container has nothing
 to say"; legal but unusual.
-
-Design refs: ``docs/chat_layer_design.md`` §6.
 """
 
 from __future__ import annotations

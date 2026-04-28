@@ -18,8 +18,6 @@ The class is configurable for the 99% case; for "manual" turn taking
 (``chatroom`` preset) the same class is used inside an async context
 manager (``Orchestrator.session()`` / ``ManualSession``) that wires
 up subscribers but never auto-loops.
-
-Design refs: ``docs/chat_layer_design.md`` §6.
 """
 
 from __future__ import annotations

@@ -34,8 +34,6 @@ The formatter degrades gracefully: if every message in memory is
 either system / self / unnamed-user, no folding happens and the output
 is identical to ``SlidingWindowContext``. Single-agent code paths pay
 no cost.
-
-Design refs: ``docs/chat_layer_design.md`` §8.
 """
 
 from __future__ import annotations

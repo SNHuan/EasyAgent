@@ -15,8 +15,6 @@ class equals, not "main mode + patches":
 Returning ``None`` from ``next`` ends the turn loop just as cleanly
 as a stop condition firing. Strategies use this to express "I have
 no more turns to schedule" without forcing a separate stop policy.
-
-Design refs: ``docs/chat_layer_design.md`` §6.
 """
 
 from __future__ import annotations

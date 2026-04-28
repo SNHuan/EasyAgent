@@ -7,8 +7,6 @@ Orchestrator's outbound message metadata for observability.
 Built-ins are designed to compose: most real flows want
 ``AnyOf([MaxRounds(n), Idle(), OnPredicate(...)])`` — fire whichever
 hits first.
-
-Design refs: ``docs/chat_layer_design.md`` §6.
 """
 
 from __future__ import annotations

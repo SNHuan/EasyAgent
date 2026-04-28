@@ -19,8 +19,6 @@ the runtime event layer (``easyagent.events.types.MessageEvent``):
 
 The chat layer never asks users to construct ``Message`` or ``MessageEvent``
 themselves; those types stay internal to their respective layers.
-
-Design refs: ``docs/chat_layer_design.md`` §4.
 """
 
 from __future__ import annotations

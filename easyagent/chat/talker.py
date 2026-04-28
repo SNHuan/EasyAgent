@@ -19,8 +19,6 @@ Three adapters live here:
 
     RuntimeTalker is defined in this module too once Step 9 lands; for
     now we only ship LLMTalker and HumanTalker.
-
-Design refs: ``docs/chat_layer_design.md`` §5.
 """
 
 from __future__ import annotations

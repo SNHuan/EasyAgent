@@ -22,8 +22,6 @@ Talkers don't access SharedState through Talker protocol — they reach
 it via tools (``put_state`` / ``get_state`` / ``wait_for_state``).
 The Orchestrator threads it through ``TurnContext.shared`` so
 strategies (``OnSharedKey``, ``FromSharedState``) can read.
-
-Design refs: ``docs/chat_layer_design.md`` §7.
 """
 
 from __future__ import annotations

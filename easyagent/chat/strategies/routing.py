@@ -20,8 +20,6 @@ Three built-ins:
 
 Custom routing is rare. If you need it, implement the protocol and
 plug it into ``Orchestrator(routing=...)``.
-
-Design refs: ``docs/chat_layer_design.md`` §6.
 """
 
 from __future__ import annotations

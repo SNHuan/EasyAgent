@@ -14,8 +14,6 @@ Four orthogonal axes:
 Each axis is a ``Protocol``. Built-ins live in submodules to keep
 imports flat at the package level — see the per-module docstrings
 for which strategy fits which use-case.
-
-Design refs: ``docs/chat_layer_design.md`` §6.
 """
 
 from __future__ import annotations
