@@ -40,14 +40,20 @@ class Message(BaseModel):
     reasoning_content: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
     tool_call_id: str | None = None
+    name: str | None = None
+    """Optional sender name. Used by the chat layer to distinguish self
+    from other talkers in multi-agent memory; the LLM API also supports
+    ``name`` on user/assistant messages but our formatters generally
+    fold it into structured prompt content rather than relying on
+    provider behavior."""
 
     @classmethod
     def system(cls, content: Any) -> "Message":
         return cls(role="system", content=content)
 
     @classmethod
-    def user(cls, content: Any) -> "Message":
-        return cls(role="user", content=content)
+    def user(cls, content: Any, name: str | None = None) -> "Message":
+        return cls(role="user", content=content, name=name)
 
     @classmethod
     def assistant(
@@ -55,8 +61,15 @@ class Message(BaseModel):
         content: Any,
         tool_calls: list[dict[str, Any]] | None = None,
         reasoning_content: str | None = None,
+        name: str | None = None,
     ) -> "Message":
-        return cls(role="assistant", content=content, tool_calls=tool_calls, reasoning_content=reasoning_content)
+        return cls(
+            role="assistant",
+            content=content,
+            tool_calls=tool_calls,
+            reasoning_content=reasoning_content,
+            name=name,
+        )
 
     @classmethod
     def from_response(cls, response: "LLMResponse") -> "Message":
@@ -75,12 +88,21 @@ class Message(BaseModel):
     def text(self) -> str:
         return content_to_text(self.content)
 
-    def to_api_dict(self) -> dict[str, Any]:
-        """渲染为 LLM API 所需的 dict 格式，将 reasoning_content 合并到 content。"""
+    def to_api_dict(
+        self,
+        *,
+        include_reasoning: bool = False,
+        reasoning_tag: str = "think",
+    ) -> dict[str, Any]:
+        """Render as an LLM API message dict.
+
+        Reasoning content is excluded by default because providers disagree on
+        whether and how it should be replayed. Adapters that explicitly need it
+        can opt in and choose the wrapper tag.
+        """
         content = self.content
-        # 对于 assistant 消息，将 reasoning_content 合并到 content
-        if self.role == "assistant" and self.reasoning_content:
-            content = f"<think>{self.reasoning_content}</think>\n{content}"
+        if self.role == "assistant" and self.reasoning_content and include_reasoning:
+            content = f"<{reasoning_tag}>{self.reasoning_content}</{reasoning_tag}>\n{content}"
         
         result: dict[str, Any] = {"role": self.role, "content": content}
         if self.tool_calls:

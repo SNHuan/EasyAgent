@@ -9,6 +9,27 @@ from easyagent.memory.base import BaseMemory
 from easyagent.model.schema import Message
 
 
+def _drop_orphan_tool_messages(messages: list[Message]) -> list[Message]:
+    """Remove tool-role messages whose assistant+tool_calls was sliced off.
+
+    After a sliding-window cut the first messages may be 'tool' responses
+    whose corresponding 'assistant' message with tool_calls no longer exists.
+    The OpenAI API rejects such sequences with a 400 error.
+    """
+    declared_ids: set[str] = set()
+    for m in messages:
+        if m.role == "assistant" and m.tool_calls:
+            for tc in m.tool_calls:
+                tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                if tc_id:
+                    declared_ids.add(tc_id)
+
+    return [
+        m for m in messages
+        if m.role != "tool" or m.tool_call_id in declared_ids
+    ]
+
+
 class SlidingWindowContext(BaseContext):
     def __init__(
         self,
@@ -31,6 +52,8 @@ class SlidingWindowContext(BaseContext):
             messages = messages[-self._max_messages :]
         if self._max_tokens is not None:
             messages = self._trim_to_token_budget(messages, self._max_tokens)
+
+        messages = _drop_orphan_tool_messages(messages)
 
         result: list[dict[str, Any]] = []
         if system_prompt:

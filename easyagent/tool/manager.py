@@ -9,18 +9,11 @@ from easyagent.tool.base import Tool
 
 
 class ToolManager:
-    """Tool manager singleton with lazy auto-discovery"""
+    """Registry of tools with lazy built-in discovery."""
 
-    _instance: "ToolManager | None" = None
-    _tools: dict[str, Tool]
-    _discovered: bool
-
-    def __new__(cls) -> "ToolManager":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._tools = {}
-            cls._instance._discovered = False
-        return cls._instance
+    def __init__(self, *, discover_builtin: bool = True):
+        self._tools: dict[str, Tool] = {}
+        self._discovered = not discover_builtin
 
     def register(self, tool: Tool) -> None:
         if not isinstance(tool, Tool):
@@ -36,7 +29,7 @@ class ToolManager:
     def get_schema(self, names: list[str] | None = None) -> list[dict[str, Any]]:
         """Get tool schema for API requests"""
         self._ensure_discovered()
-        if names:
+        if names is not None:
             tools = [self._tools[n] for n in names if n in self._tools]
         else:
             tools = list(self._tools.values())
@@ -78,8 +71,8 @@ class ToolManager:
 
 
 def register_tool(cls: type) -> type:
-    """Class decorator: auto-register tool to ToolManager"""
-    ToolManager().register(cls())
+    """Class decorator: register a tool on the process default registry."""
+    DEFAULT_TOOL_MANAGER.register(cls())
     return cls
 
 
@@ -103,4 +96,7 @@ def _discover_builtin_tools() -> None:
                     importlib.import_module(f"{module_name}.{subname}")
                 except ImportError:
                     pass
+
+
+DEFAULT_TOOL_MANAGER = ToolManager()
 

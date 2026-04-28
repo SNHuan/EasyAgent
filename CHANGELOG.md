@@ -5,87 +5,115 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.4] - 2026-01-20
+## [0.3.0] - 2026-04-28
 
-### Changed
-
-- Rebuilt the core runtime around `AgentSession`, `BaseLoop`, `BaseMemory`, and `BaseContext`
-- Split memory storage from model-facing context assembly
-- Replaced feature-stacked agent internals with capability composition
-- Reworked `ReactAgent` and `SandboxAgent` into thin presets over the new architecture
-- Removed ContextVar-based skill/sandbox runtime access from the main execution path
-- Added `InMemoryMemory`, `FullContext`, `SlidingWindowContext`, and `SummaryContext`
-- Added `ToolCapability`, `SkillCapability`, and `SandboxCapability`
-- Updated tests to validate the new session-based runtime model
-
-### Fixed
-
-- Synchronized top-level exports with the actual runtime architecture
-- Fixed pytest configuration to point at the in-repo test suite
-
-### Documentation
-
-- Rewrote `README.md` and `README_CN.md` to match the new architecture
-- Added runnable example `examples/simple_react_agent.py`
-
-### Previous 0.1.4 Notes
-
-- **`Message.reasoning_content` 字段**: `Message` 模型新增 `reasoning_content` 可选字段，用于存储 LLM 的推理/思考内容（如 Claude 的 `<think>` 块）。这使得 agent 的 memory 能够完整保留模型输出的所有信息。
-
-- **`Message.from_response()` 类方法**: 新增从 `LLMResponse` 直接创建 `Message` 的便捷方法。自动将 response 中的 `content`、`reasoning_content` 和 `tool_calls` 映射到 Message 对应字段。
-
-- **`Message.to_api_dict()` 方法**: 新增将 Message 渲染为 LLM API 所需 dict 格式的方法。在发送给 LLM 时，自动将 `reasoning_content` 以 `<think>...</think>` 格式合并到 `content` 中，确保对话上下文的完整性。
-
-### Changed
-
-- **`BaseAgent._build_messages()`**: 改用 `Message.to_api_dict()` 构建 API 请求消息，确保 `reasoning_content` 被正确渲染到对话历史中。
-
-### Why This Matters
-
-现代 LLM（如 Claude、DeepSeek）支持 "思考" 模式，会在 `reasoning_content` 字段返回推理过程。之前的实现只存储 `content`，导致：
-
-1. 对话历史丢失了模型的推理上下文
-2. 多轮对话时模型无法"回忆"之前的思考过程
-3. 日志和 trajectory 无法完整记录模型行为
-
-此次更新确保：
-
-- ✅ Memory 完整存储 `content` + `reasoning_content`
-- ✅ 发送给 LLM 时正确合并为完整上下文
-- ✅ 支持 trajectory 导出完整的 thinking 记录
-
-### Migration Guide
-
-**无破坏性变更**。现有代码无需修改即可继续工作。
-
-如需利用新功能：
-
-```python
-# 之前的写法（仍然有效）
-msg = Message.assistant(content="Hello")
-
-# 新写法：从 LLMResponse 直接创建（推荐）
-response = await model.call_with_history(msgs)
-msg = Message.from_response(response)
-
-# 或者手动指定 reasoning_content
-msg = Message.assistant(
-    content="The answer is 42",
-    reasoning_content="Let me think step by step..."
-)
-```
-
-## [0.1.3] - 2026-01-15
+The biggest release since the SDK started. The runtime is rebuilt around three layers — a single-agent ladder (`Agent` → `ReactAgent` → `SkillAgent` / `SandboxAgent`), a tick-driven runtime layer for autonomous group simulation, and a **chat layer** that is the new default entry point for multi-agent collaboration.
 
 ### Added
 
-- Auto-discover tools feature
-- Tests for tool discovery
+**Single-agent layer**
+- `BaseAgent` / `Agent` (single-turn) / `ReactAgent` (ReAct loop) / `SkillAgent` / `SandboxAgent` — clean inheritance chain, with loop logic now living in `agent.step()`.
+- `AgentSession` — the per-execution instance (renamed from `AgentRuntime`). New `on_events(events) -> list[BaseEvent]` hook for multi-agent participation; default delivers the last incoming `MessageEvent` and replies preserving visibility (broadcast-on-broadcast, DM-back-to-sender).
+- `BaseAgent.observe(msg, *, session=None, sender=None)` — read-only memory absorption surfaced at the agent level so a plain `BaseAgent` can play the "watch the conversation" role without the chat-layer wrapper.
+- `SkillAgent` — auto-registers `load_skill` / `list_skill_files` / `read_skill_file` / `run_skill_script` so the model can discover and load `SKILL.md` packages on demand.
+- `SandboxAgent` — auto-registers `bash` / `write_file` / `read_file` and manages sandbox lifecycle via `on_session_start` / `on_session_end`.
+- `Message.name` — optional sender name, used by the chat layer's multi-agent formatter to disambiguate self vs. others in shared memory.
+- `Message.to_api_dict()` — excludes `reasoning_content` by default; provider-specific replay can opt in with `include_reasoning=True`.
+
+**Tools**
+- `EndTool` — the canonical "I'm done" tool. `ReactAgent` installs it by default (`auto_end=True`); calling `end(data=...)` stops the loop and publishes `StopEvent` for observability.
+- `ThinkTool` — side-effect-free scratch pad. The `thought` argument lands in tool-call history so the model can re-read its own reasoning. Installed in `ReactAgent` by default (`auto_think=True`).
+- `ToolManager` / `SkillManager` are now normal registries instead of constructor-level singletons. `register_tool` / `register_skill` target process default registries; agents can receive explicit managers for isolation.
+
+**Events and runtime (`easyagent.events`, `easyagent.runtime`)**
+- `BaseEvent`, `EventBus`, plus telemetry events (`LLMCalledEvent`, `ToolCalledEvent`, `ToolResultEvent`, `StopEvent`).
+- `MessageEvent` — the only communication primitive. Visibility (`to="*"` broadcast, `to=frozenset(...)` DM/subgroup) is a property of the message, not a channel object.
+- `WaitEvent` — an agent returns this to skip the current tick and be re-delivered next round.
+- `BaseRuntime` — minimal abstract base: holds agents, bus, state. Stable `name` property used by `RuntimeTalker`.
+- `TickBasedRuntime` — tick loop with `StepPolicy` / `SchedulePolicy` / `StopPolicy`, `WaitEvent` handling, and `on_undeliverable` hook for human-in-the-loop. Each tick boundary and the chosen execution order are logged at INFO level.
+- Presets: `ParallelRuntime` / `SequentialRuntime` / `ShuffledRuntime` (TickBasedRuntime with `schedule_policy` pre-filled).
+- Policies: `DeliverToRecipients`, `TickDriven` (StepPolicy); `Parallel`, `Sequential`, `Shuffled` (SchedulePolicy); `StopWhenIdle`, `StopAfterTicks`, `StopAfterEvents`, `StopWhenMessageMatches`, `AnyOf` (StopPolicy).
+- `BaseRuntime` injects `tick` / `max_ticks` into `AgentSession.metadata` so agents can sense time pressure.
+
+**Chat layer (`easyagent.chat`) — recommended starting point for multi-agent**
+- `ChatMessage` / `Identity` — user-facing conversation primitives. Routing (`to`, `channel`) lives on the message itself.
+- `Talker` protocol with three adapters: `LLMTalker` (wraps any `BaseAgent`), `HumanTalker` (queue/UI input), `RuntimeTalker` (wraps any `BaseRuntime`).
+- `Orchestrator` — multi-Talker container. Itself implements `Talker`, so containers nest natively.
+- Strategies along four axes, each pluggable, with built-ins:
+  - **Routing**: `Broadcast`, `Direct`, `Pipeline`.
+  - **TurnTaking**: `Conducted`, `Reactive`, `RoundRobin`, `Random`, `Weighted`, `Selected`, `Manual`.
+  - **StopCondition**: `MaxRounds`, `Idle`, `AfterAllSpoken`, `OnPredicate`, `OnSharedKey`, `AnyOf`, `AllOf`.
+  - **Summarize**: `LastMessage`, `Aggregate`, `ByJudge`, `FromSharedState`, `Custom`.
+- Presets: `sequential`, `fanout`, `chatroom`, `groupchat`, `debate`.
+- `MultiAgentFormatter` — renders multi-speaker memory into a per-Talker prompt with `<history>` folding so an agent never mistakes others' words for its own. Auto-installed by `LLMTalker`; degrades to standard formatting for single-agent flows.
+- `SharedState` — versioned KV blackboard with subscriptions, async `wait_for`, and a bus bridge (`StateChangedEvent`).
+
+**Examples (single-concept-per-step ladder, 00–14)**
+- `00`–`06` single-agent: `model_call`, `single_turn_agent`, `memory_and_context`, `react_with_tools`, `skills_lazy_loading`, `sandbox_agent`, `custom_tool`.
+- `07`–`13` chat layer: `two_agents_talk`, `sequential`, `chatroom`, `groupchat`, `debate_and_judge`, `nested`, `shared_state`.
+- `14_advanced_runtime` — tick-based simulation with custom session and policies.
+
+**Docs**
+- New `docs/architecture.md` — single architecture overview replacing the scattered prior design notes.
+- `README.md` / `README_CN.md` rewritten around the new layers (single-agent → chat → runtime) and the renumbered example ladder.
 
 ### Changed
 
-- Updated README with sandbox and new features
+- `AgentRuntime` → `AgentSession`; `create_runtime()` → `create_session()`.
+- `ReactAgent` is the canonical ReAct loop agent (consolidates prompt construction, tool-call formatting, and telemetry emission). `SkillAgent` and `SandboxAgent` now subclass `ReactAgent`.
+- A plain-text LLM response (no tool calls, no end token) is treated as a completed answer in the ReAct loop instead of "continue" — fixes infinite loops in group-chat scenarios.
+- Top-level `easyagent` package surface is intentionally smaller: `Agent` / `ReactAgent` / `SkillAgent` / `SandboxAgent` / `AgentSession` / `AgentRunResult` / `LiteLLMModel` / `Message` / `MessageEvent` / `EventBus` / `ToolManager` / `SkillManager` / `register_tool`. Submodule access for everything else.
 
-## [0.1.2] - Previous releases
+### Removed
+
+- `easyagent/loop/` (`SingleTurnLoop`, `ReActLoop`) — loop logic now lives in `agent.step()`.
+- `easyagent/capability/` (`ToolCapability`, `SkillCapability`, `SandboxCapability`) — replaced by dedicated `ReactAgent` / `SkillAgent` / `SandboxAgent` subclasses.
+- `easyagent/pipeline/` (`Team`, `BaseNode`, `BasePipeline`) — superseded by `chat.sequential` for static pipelines and `Orchestrator(turn_taking=Conducted)` for custom containers.
+- Stale design docs under `docs/` (`agent-capability-architecture.md`, `agent-system-design-new.md`, `current-architecture-discussion-notes.md`).
+- Old examples (`simple_react_agent.py`, `session_agent_demo.py`, `tool_skill_sandbox_demo.py`) — superseded by the 00–14 ladder.
+
+### Fixed
+
+- `.gitignore` now covers timestamped runtime artefact directories (`/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_*/`).
+
+---
+
+## [0.2.0] - 2026-01-20
+
+### Changed
+
+- Rebuilt the core runtime around `AgentSession`, `BaseLoop`, `BaseMemory`, and `BaseContext`.
+- Split memory storage from model-facing context assembly.
+- Replaced feature-stacked agent internals with capability composition.
+- Reworked `ReactAgent` and `SandboxAgent` into thin presets.
+- Added `InMemoryMemory`, `FullContext`, `SlidingWindowContext`, `SummaryContext`.
+- Added `ToolCapability`, `SkillCapability`, `SandboxCapability`.
+
+### Fixed
+
+- Synchronized top-level exports with the actual runtime architecture.
+
+---
+
+## [0.1.4] - 2026-01-15
+
+### Added
+
+- `Message.reasoning_content` field for storing LLM thinking content.
+- `Message.from_response()` class method.
+- `Message.to_api_dict()` method.
+
+---
+
+## [0.1.3] - 2026-01-10
+
+### Added
+
+- Auto-discover tools feature.
+- Tests for tool discovery.
+
+---
+
+## [0.1.2] - Earlier releases
 
 See git history for earlier changes.

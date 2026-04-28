@@ -3,6 +3,7 @@ import asyncio
 from easyagent.agent import ReactAgent
 from easyagent.config.base import ModelConfig
 from easyagent.model.litellm_model import LiteLLMModel
+from easyagent.tool import DEFAULT_TOOL_MANAGER
 
 
 async def main():
@@ -11,13 +12,13 @@ async def main():
 
     agent = ReactAgent(
         model=model,
-        tools=["serper_search"],
+        tool_manager=DEFAULT_TOOL_MANAGER,
         system_prompt="You are a helpful assistant. Use the search tool to find information.",
         max_iterations=5,
     )
 
     result = await agent.run("What is the latest version of Python?")
-    print(f"Result: {result}")
+    print(f"Result: {result.final_output}")
 
 
 if __name__ == "__main__":

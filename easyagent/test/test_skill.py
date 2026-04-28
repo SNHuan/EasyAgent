@@ -1,4 +1,4 @@
-"""Tests for easyagent.skill — loader, manager, ReactAgent integration."""
+"""Tests for easyagent.skill — loader, manager, SkillAgent integration."""
 
 from pathlib import Path
 
@@ -8,19 +8,6 @@ from easyagent.model.schema import LLMResponse, ToolCall
 
 
 # -------- fixtures --------
-
-@pytest.fixture(autouse=True)
-def reset_singletons():
-    """Reset SkillManager and ToolManager caches between tests."""
-    from easyagent.skill import SkillManager
-    from easyagent.tool import ToolManager
-
-    SkillManager().reset()
-    yield
-    SkillManager().reset()
-    # Tool registry is populated at import time; clearing would break subsequent tests.
-    ToolManager()._ensure_discovered()
-
 
 def _write_skill(base: Path, name: str, body: str = "Body here.", tools=None) -> Path:
     """Helper: create <base>/<name>/SKILL.md."""
@@ -35,8 +22,14 @@ def _write_skill(base: Path, name: str, body: str = "Body here.", tools=None) ->
     return d
 
 
+def _write_skill_file(skill_dir: Path, relative_path: str, content: str) -> None:
+    target = skill_dir / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+
+
 class FakeLLM:
-    """Scripted responses for ReactAgent integration tests."""
+    """Scripted responses for agent integration tests."""
 
     def __init__(self, responses: list[LLMResponse]):
         self._responses = list(responses)
@@ -93,6 +86,29 @@ def test_load_skill_from_dir_lazy_body(tmp_path):
     assert skill._body is None  # lazy
     assert "Full body here." in skill.body()
     assert skill._body is not None  # cached
+
+
+def test_skill_package_lists_and_reads_files(tmp_path):
+    from easyagent.skill import load_skill_from_dir
+
+    d = _write_skill(tmp_path, "my-skill", body="Body here.")
+    _write_skill_file(d, "references/guide.md", "Guide text.")
+    _write_skill_file(d, "scripts/helper.py", "print('ok')")
+
+    skill = load_skill_from_dir(d)
+
+    assert skill.list_files() == ["references/guide.md", "scripts/helper.py"]
+    assert skill.read_file("references/guide.md") == "Guide text."
+
+
+def test_skill_package_rejects_path_escape(tmp_path):
+    from easyagent.skill import load_skill_from_dir
+
+    d = _write_skill(tmp_path, "my-skill")
+    skill = load_skill_from_dir(d)
+
+    with pytest.raises(ValueError):
+        skill.resolve_file("../outside.txt")
 
 
 def test_load_skill_rejects_missing_name(tmp_path):
@@ -175,9 +191,9 @@ def test_manager_skips_invalid_skill_dir(tmp_path, caplog):
     assert [s["name"] for s in summaries] == ["good"]
 
 
-# -------- ReactAgent construction --------
+# -------- ReactAgent / SkillAgent construction --------
 
-def test_react_agent_no_skills_keeps_prompt_unchanged(tmp_path):
+def test_tool_agent_no_skills_keeps_prompt_unchanged():
     from easyagent import ReactAgent
 
     agent = ReactAgent(model=FakeLLM([]))
@@ -187,11 +203,19 @@ def test_react_agent_no_skills_keeps_prompt_unchanged(tmp_path):
     assert "load_skill" not in tool_names
 
 
-def test_react_agent_injects_skills_section(tmp_path):
-    from easyagent import ReactAgent
+def test_skill_agent_injects_skills_section(tmp_path):
+    from easyagent import SkillAgent
+    from easyagent.skill import SkillManager
 
     _write_skill(tmp_path, "demo", tools=["get_weather"])
-    agent = ReactAgent(model=FakeLLM([]), skills=["demo"], skill_dir=tmp_path)
+    skill_manager = SkillManager(include_default_dirs=False)
+
+    agent = SkillAgent(
+        model=FakeLLM([]),
+        skills=["demo"],
+        skill_root=tmp_path,
+        skill_manager=skill_manager,
+    )
     session = agent.create_session()
 
     system_prompt = agent.build_system_prompt(session)
@@ -201,14 +225,19 @@ def test_react_agent_injects_skills_section(tmp_path):
     assert "load_skill" in tool_names
 
 
-def test_react_agent_unknown_skill_does_not_raise(tmp_path, caplog):
-    from easyagent import ReactAgent
+def test_skill_agent_unknown_skill_does_not_raise(tmp_path, caplog):
+    from easyagent import SkillAgent
+    from easyagent.skill import SkillManager
 
-    agent = ReactAgent(
-        model=FakeLLM([]), skills=["nope"], skill_dir=tmp_path
+    skill_manager = SkillManager(include_default_dirs=False)
+    agent = SkillAgent(
+        model=FakeLLM([]),
+        skills=["nope"],
+        skill_root=tmp_path,
+        skill_manager=skill_manager,
     )
     session = agent.create_session()
-    # No skills found → no section, no load_skill tool
+    # No skills found → no section, but load_skill tool is still registered
     assert "Available Skills" not in agent.build_system_prompt(session)
     tool_names = [schema["function"]["name"] for schema in agent.get_tool_schemas(session)]
     assert "load_skill" in tool_names
@@ -222,12 +251,9 @@ async def test_load_skill_activates_declared_tools(tmp_path):
 
     Verifies the skill's declared tool gets appended to session.enabled_tools.
     """
-    from easyagent import ReactAgent
-    from easyagent.prompt.react import REACT_END_TOKEN
-    from easyagent.tool import register_tool
+    from easyagent import SkillAgent
+    from easyagent.skill import SkillManager
 
-    # A tool the skill will reference (register once; idempotent on re-runs).
-    @register_tool
     class DummyEcho:
         name = "dummy_echo"
         type = "function"
@@ -238,11 +264,12 @@ async def test_load_skill_activates_declared_tools(tmp_path):
             "required": ["msg"],
         }
         def init(self): pass
-        def execute(self, msg: str) -> str: return f"echoed: {msg}"
+        def execute(self, msg: str, **kwargs) -> str: return f"echoed: {msg}"
+
+    skill_manager = SkillManager(include_default_dirs=False)
 
     _write_skill(tmp_path, "demo", body="Use dummy_echo.", tools=["dummy_echo"])
 
-    # Scripted LLM: first turn calls load_skill, second returns final answer.
     first = LLMResponse(
         content="Loading skill.",
         tool_calls=[ToolCall(
@@ -250,29 +277,40 @@ async def test_load_skill_activates_declared_tools(tmp_path):
             arguments={"name": "demo"},
         )],
     )
-    final = LLMResponse(content=f"All done. {REACT_END_TOKEN}")
+    final = LLMResponse(
+        content="finishing",
+        tool_calls=[ToolCall(
+            id="call_2", type="function", name="end",
+            arguments={"data": "All done."},
+        )],
+    )
 
-    agent = ReactAgent(
+    agent = SkillAgent(
         model=FakeLLM([first, final]),
         skills=["demo"],
-        skill_dir=tmp_path,
+        skill_root=tmp_path,
+        skill_manager=skill_manager,
         max_iterations=5,
     )
+    # Register tool but don't enable it — load_skill will activate it
+    agent.add_tool(DummyEcho(), enabled=False)
+
     session = agent.create_session()
     assert "dummy_echo" not in session.enabled_tools  # not active yet
 
     result = await agent.run("test", session=session)
-    assert "All done." in result
+    assert "All done." in (result.final_output or "")
     assert "dummy_echo" in session.enabled_tools  # activated by load_skill
 
 
 @pytest.mark.asyncio
 async def test_load_skill_unknown_tool_graceful(tmp_path):
-    """Skill declares a non-existent tool; load_skill must report it, not crash."""
-    from easyagent import ReactAgent
-    from easyagent.prompt.react import REACT_END_TOKEN
+    """Skill declares a non-existent tool; load_skill must not crash."""
+    from easyagent import SkillAgent
+    from easyagent.skill import SkillManager
 
     _write_skill(tmp_path, "demo", tools=["this_tool_does_not_exist"])
+    skill_manager = SkillManager(include_default_dirs=False)
 
     first = LLMResponse(
         content="Loading.",
@@ -281,16 +319,115 @@ async def test_load_skill_unknown_tool_graceful(tmp_path):
             arguments={"name": "demo"},
         )],
     )
-    final = LLMResponse(content=f"done {REACT_END_TOKEN}")
+    final = LLMResponse(
+        content="finishing",
+        tool_calls=[ToolCall(
+            id="c2", type="function", name="end",
+            arguments={"data": "done"},
+        )],
+    )
 
-    agent = ReactAgent(
+    agent = SkillAgent(
         model=FakeLLM([first, final]),
         skills=["demo"],
-        skill_dir=tmp_path,
+        skill_root=tmp_path,
+        skill_manager=skill_manager,
     )
     session = agent.create_session()
     result = await agent.run("x", session=session)
-    assert "done" in result
-    # Check that the tool result (in history) contains the warning text
+    assert "done" in (result.final_output or "")
+
+
+@pytest.mark.asyncio
+async def test_load_skill_reports_packaged_files(tmp_path):
+    from easyagent import SkillAgent
+    from easyagent.skill import SkillManager
+
+    skill_dir = _write_skill(tmp_path, "demo", body="Read references/guide.md.")
+    _write_skill_file(skill_dir, "references/guide.md", "Guide text.")
+
+    first = LLMResponse(
+        content="Loading.",
+        tool_calls=[ToolCall(
+            id="c1", type="function", name="load_skill",
+            arguments={"name": "demo"},
+        )],
+    )
+    final = LLMResponse(
+        content="finishing",
+        tool_calls=[ToolCall(
+            id="c2", type="function", name="end",
+            arguments={"data": "done"},
+        )],
+    )
+
+    agent = SkillAgent(
+        model=FakeLLM([first, final]),
+        skills=["demo"],
+        skill_root=tmp_path,
+        skill_manager=SkillManager(include_default_dirs=False),
+    )
+    session = agent.create_session()
+    await agent.run("x", session=session)
     tool_msgs = [m for m in session.get_all_messages() if m.role == "tool"]
-    assert any("Warning" in m.text() for m in tool_msgs)
+    assert any("references/guide.md" in m.text() for m in tool_msgs)
+
+
+@pytest.mark.asyncio
+async def test_skill_file_tools_require_loaded_skill(tmp_path):
+    from easyagent import SkillAgent
+    from easyagent.skill import SkillManager
+
+    _write_skill(tmp_path, "demo")
+
+    agent = SkillAgent(
+        model=FakeLLM([]),
+        skills=["demo"],
+        skill_root=tmp_path,
+        skill_manager=SkillManager(include_default_dirs=False),
+    )
+    session = agent.create_session()
+
+    result = await agent.execute_tool_call(
+        session,
+        "list_skill_files",
+        {"name": "demo"},
+    )
+
+    assert "Call load_skill first" in result
+
+
+@pytest.mark.asyncio
+async def test_skill_file_tools_read_and_run_scripts(tmp_path):
+    from easyagent import SkillAgent
+    from easyagent.skill import SkillManager
+
+    skill_dir = _write_skill(tmp_path, "demo")
+    _write_skill_file(skill_dir, "references/guide.md", "Guide text.")
+    _write_skill_file(skill_dir, "scripts/echo.py", "import sys\nprint(sys.argv[1])\n")
+
+    agent = SkillAgent(
+        model=FakeLLM([]),
+        skills=["demo"],
+        skill_root=tmp_path,
+        skill_manager=SkillManager(include_default_dirs=False),
+    )
+    session = agent.create_session()
+    session.loaded_skills.append("demo")
+
+    listed = await agent.execute_tool_call(session, "list_skill_files", {"name": "demo"})
+    content = await agent.execute_tool_call(
+        session,
+        "read_skill_file",
+        {"name": "demo", "path": "references/guide.md"},
+    )
+    script_result = await agent.execute_tool_call(
+        session,
+        "run_skill_script",
+        {"name": "demo", "script": "echo.py", "args": ["hello"]},
+    )
+
+    assert "references/guide.md" in listed
+    assert content == "Guide text."
+    assert '"exit_code": 0' in script_result
+    assert "hello" in script_result

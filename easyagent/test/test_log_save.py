@@ -82,7 +82,7 @@ async def run_agent_with_logging(task_id: str, query: str) -> tuple[str, Path]:
     
     agent = ReactAgent(
         model=model,
-        tools=["get_weather"],
+        tools=[GetWeather()],
         system_prompt="You are a helpful assistant.",
         max_iterations=5,
     )
@@ -91,7 +91,7 @@ async def run_agent_with_logging(task_id: str, query: str) -> tuple[str, Path]:
         result = await agent.run(query)
         log_file = save_logs_to_file(collector.records, task_id)
     
-    return result, log_file
+    return result.final_output, log_file
 
 
 async def main():

@@ -43,7 +43,7 @@ class Bash:
         **kwargs: Any,
     ) -> str:
         """Execute bash command."""
-        sandbox = None if session is None else session.resources.get("sandbox")
+        sandbox = None if session is None else getattr(session, "sandbox", None)
         if sandbox is None:
             return "Error: No sandbox configured. Please set up a sandbox first."
 

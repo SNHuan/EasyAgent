@@ -1,50 +1,61 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from easyagent.agent.session import AgentSession
-from easyagent.model.base import BaseLLM
+from easyagent.model.schema import Message
+
+if TYPE_CHECKING:
+    from easyagent.agent.session import AgentRunResult, AgentSession, LoopStepResult
 
 
 class BaseAgent(ABC):
-    def __init__(
+    """Minimal contract for anything a Runtime can host."""
+
+    session_class: type[AgentSession] = None  # type: ignore[assignment]
+
+    @abstractmethod
+    async def run(self, user_input: Any, *, session: "AgentSession | None" = None) -> "AgentRunResult": ...
+
+    def create_session(self) -> "AgentSession":
+        from easyagent.agent.session import AgentSession
+
+        return (self.session_class or AgentSession)()
+
+    async def on_session_start(self, session: "AgentSession") -> None: ...
+    async def on_session_end(self, session: "AgentSession") -> None: ...
+
+    async def run_session(self, session: "AgentSession", user_input: Any) -> str:
+        raise NotImplementedError
+
+    async def step(self, session: "AgentSession") -> "LoopStepResult":
+        raise NotImplementedError
+
+    async def observe(
         self,
-        default_model: BaseLLM,
-        system_prompt: str = "",
-    ):
-        self._default_model = default_model
-        self._system_prompt = system_prompt
+        message: Message | str,
+        *,
+        session: "AgentSession | None" = None,
+        sender: str | None = None,
+    ) -> None:
+        """Absorb a message into the session's memory without triggering a reply.
 
-    @property
-    def default_model(self) -> BaseLLM:
-        return self._default_model
+        This is the Talker-style read-only contract surfaced at the
+        BaseAgent level so callers can use a plain agent for the
+        "watch the conversation" half of multi-agent without needing
+        the chat layer's ``LLMTalker`` wrapper.
 
-    @property
-    def system_prompt(self) -> str:
-        return self._system_prompt
-
-    @abstractmethod
-    def create_session(self, **kwargs: Any) -> AgentSession:
-        pass
-
-    @abstractmethod
-    async def run(self, user_input: Any, *, session: AgentSession | None = None) -> str:
-        pass
-
-    @abstractmethod
-    def build_system_prompt(self, session: AgentSession) -> str:
-        pass
-
-    @abstractmethod
-    def get_tool_schemas(self, session: AgentSession) -> list[dict[str, Any]]:
-        pass
-
-    @abstractmethod
-    async def execute_tool_call(
-        self,
-        session: AgentSession,
-        name: str,
-        arguments: dict[str, Any],
-    ) -> str:
-        pass
+        Strings are wrapped as ``Message.user(...)`` (with optional
+        ``name=sender`` for multi-agent attribution); already-built
+        ``Message`` objects pass through. If no session is provided a
+        fresh one is created — practical for single-shot side calls,
+        though most users will want to manage their own session and
+        pass it explicitly.
+        """
+        active = session or self.create_session()
+        if isinstance(message, str):
+            msg = Message.user(message, name=sender)
+        else:
+            msg = message
+        # ``add_message`` lives on AgentSession and writes through to memory.
+        active.add_message(msg)

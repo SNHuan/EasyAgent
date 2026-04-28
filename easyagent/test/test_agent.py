@@ -1,9 +1,9 @@
 import pytest
 
-from easyagent import ReactAgent, SlidingWindowContext
+from easyagent import ReactAgent
+from easyagent.context import SlidingWindowContext
 from easyagent.memory import InMemoryMemory
 from easyagent.model.schema import LLMResponse, ToolCall
-from easyagent.tool import ToolManager, register_tool
 
 
 class FakeLLM:
@@ -19,15 +19,8 @@ class FakeLLM:
         return self._responses.pop(0)
 
 
-@pytest.fixture(autouse=True)
-def reset_tools():
-    ToolManager().reset()
-    yield
-
-
 @pytest.mark.asyncio
-async def test_react_agent_runs_tool_loop():
-    @register_tool
+async def test_tool_agent_runs_tool_loop():
     class EchoTool:
         name = "echo_tool"
         type = "function"
@@ -57,17 +50,41 @@ async def test_react_agent_runs_tool_loop():
                     )
                 ],
             ),
-            LLMResponse(content="done <<REACT_COMPLETE>>"),
+            LLMResponse(
+                content="finishing",
+                tool_calls=[
+                    ToolCall(
+                        id="call_2",
+                        type="function",
+                        name="end",
+                        arguments={"data": "done"},
+                    )
+                ],
+            ),
         ]
     )
 
     agent = ReactAgent(
         model=llm,
-        tools=["echo_tool"],
+        tools=[EchoTool()],
         memory=InMemoryMemory(),
         context=SlidingWindowContext(max_messages=10),
     )
     result = await agent.run("hello")
 
-    assert result == "done"
+    assert result.final_output == "done"
 
+
+def test_tool_agent_with_no_extra_tools():
+    agent = ReactAgent(
+        model=FakeLLM([]),
+        memory=InMemoryMemory(),
+        context=SlidingWindowContext(max_messages=10),
+    )
+    session = agent.create_session()
+
+    # Only the "end" tool is enabled by default
+    assert session.enabled_tools == ["end"]
+    schemas = agent.get_tool_schemas(session)
+    assert len(schemas) == 1
+    assert schemas[0]["function"]["name"] == "end"

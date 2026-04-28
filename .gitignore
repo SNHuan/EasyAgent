@@ -11,3 +11,7 @@ workspace/
 .env
 /agent_workspace
 /.vscode
+
+# Timestamped runtime artefacts (belt-and-suspenders against runtime code
+# accidentally writing logs to the repo root).
+/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_*/

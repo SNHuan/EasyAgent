@@ -35,7 +35,17 @@ async def test_sandbox_agent_runs_bash_tool():
                     )
                 ],
             ),
-            LLMResponse(content="done <<REACT_COMPLETE>>"),
+            LLMResponse(
+                content="finishing",
+                tool_calls=[
+                    ToolCall(
+                        id="call_2",
+                        type="function",
+                        name="end",
+                        arguments={"data": "done"},
+                    )
+                ],
+            ),
         ]
     )
 
@@ -45,7 +55,7 @@ async def test_sandbox_agent_runs_bash_tool():
     )
     result = await agent.run("run a command")
 
-    assert result == "done"
+    assert result.final_output == "done"
 
 
 @pytest.mark.asyncio
