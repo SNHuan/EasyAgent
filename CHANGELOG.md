@@ -5,6 +5,85 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-29
+
+The multi-agent layer is rebuilt from scratch around three orthogonal protocols — **Entity** (who acts), **World** (what they perceive), **Schedule** (who goes when) — replacing the previous Talker/Orchestrator/Runtime architecture. The single-agent layer is unchanged.
+
+### Added
+
+**Core protocols (`easyagent/core/`)**
+- `Entity` Protocol — `id` property + `async act(Perception) -> Action | None`.
+- `World` Protocol — `observe(entity_id) -> Perception`, `apply(entity_id, Action)`, `seed(content, sender)`.
+- `Schedule` Protocol — `next(LoopState) -> list[str] | None`.
+- `Runtime` — the perceive-act-apply loop wiring Entity + World + Schedule + optional EventBus.
+- `RuntimeResult` — with `actions`, `ticks`, `last_speech`, `speeches` helpers.
+
+**Perception & Action types (`easyagent/core/types.py`)**
+- `Perception` — immutable bag of typed `PerceptionSlice`s with `of_type()` / `all_of_type()` helpers.
+- `PerceptionSlice` variants: `MessagesSlice`, `SpatialSlice`, `StateSlice`.
+- `Action` hierarchy: `Speak`, `Move`, `SetState`, `Silent`, `Composite` — all frozen dataclasses.
+- `ChatMessage` — lightweight `sender`, `content`, `to`, `channel` for multi-agent messaging.
+- `LoopState` — mutable tick counter + action log for Schedule decisions.
+
+**Schedule implementations (`easyagent/core/schedule.py`)**
+- `TakeTurns` — fixed sequence, returns None after last.
+- `RoundRobin` — one per tick, cycling.
+- `AllParallel` — everyone acts each tick.
+- `RandomOrder` — one per tick, random.
+- `Reactive` — addressed entity speaks next (reads action_log).
+- `MaxTicks(inner, n)` — caps at N ticks.
+- `UntilIdle(inner, grace)` — stops after N silent ticks.
+- `UntilPredicate(inner, predicate)` — stops on predicate.
+
+**World implementations (`easyagent/worlds/`)**
+- `ConversationWorld` — flat chat history, broadcast visibility.
+- `PipelineWorld(order)` — entity N sees only seed + entity N-1's output.
+- `SpatialWorld` + `Grid2D` — 2D grid with range-limited perception (`SpatialSlice`).
+- `StatefulWorld(inner)` — decorator adding `StateSlice` + `SetState` handling to any World.
+- `SharedState` — versioned KV blackboard with subscriptions and `async wait_for`.
+
+**Entity implementations (`easyagent/entities/`)**
+- `LLMEntity` — wraps an `Agent`; rebuilds memory from Perception each turn (eliminates double-write).
+- `TeamEntity` — wraps an inner `Runtime` as a single Entity for recursive nesting.
+- `HumanEntity` — reads from `asyncio.Queue` or callback.
+
+**Presets (`easyagent/presets.py`)**
+- `sequential(entities, seed)` — PipelineWorld + TakeTurns.
+- `fanout(entities, seed)` — ConversationWorld + AllParallel + MaxTicks(1).
+- `debate(entities, rounds, seed, judge=)` — ConversationWorld + RoundRobin + MaxTicks, optional judge.
+- `chatroom(entities)` — returns `ManualSession` context manager with attribute-based routing.
+- `groupchat(entities, rounds, seed)` — ConversationWorld + Reactive + UntilIdle + MaxTicks.
+
+**Context**
+- `MultiAgentFormatter` migrated to `easyagent/context/multi_agent.py` — folds non-self messages into `<history>` block for LLM prompts.
+
+**Tests**
+- `easyagent/test/test_core.py` — 33 tests covering all Schedule, World, and Runtime behaviour.
+
+**Examples rewritten (07–14)**
+- `07_two_agents_talk` — LLMEntity + ConversationWorld + RoundRobin.
+- `08_sequential` — sequential() preset.
+- `09_chatroom` — ManualSession with manual routing.
+- `10_groupchat` — Reactive schedule, LLM picks next.
+- `11_debate_and_judge` — debate() with third-party judge.
+- `12_nested` — TeamEntity: Runtime-as-Entity nesting.
+- `13_shared_state` — SharedState + StatefulWorld + UntilPredicate.
+- `14_advanced_runtime` — SpatialWorld: 2D grid + Move + Composite actions.
+
+### Changed
+
+- Top-level `easyagent` package surface updated: exports Entity, World, Schedule, Runtime, all perception/action types, all entity/world/schedule implementations, all presets.
+- `pyproject.toml` description updated for new architecture.
+- `README.md` / `README_CN.md` rewritten around Entity-World-Schedule.
+- `docs/architecture.md` rewritten for the new three-protocol design.
+
+### Removed
+
+- `easyagent/chat/` — entire directory (Orchestrator, Talker, LLMTalker, HumanTalker, RuntimeTalker, ChatMessage/Identity, strategies/routing, strategies/stop, strategies/summarize, strategies/turn_taking, presets, turn_context, formatter, shared_state).
+- `easyagent/runtime/` — entire directory (BaseRuntime, TickBasedRuntime, policies, state).
+
+---
+
 ## [0.3.0] - 2026-04-28
 
 The biggest release since the SDK started. The runtime is rebuilt around three layers — a single-agent ladder (`Agent` → `ReactAgent` → `SkillAgent` / `SandboxAgent`), a tick-driven runtime layer for autonomous group simulation, and a **chat layer** that is the new default entry point for multi-agent collaboration.

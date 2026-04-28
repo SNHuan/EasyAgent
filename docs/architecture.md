@@ -8,25 +8,21 @@ Model
   -> Agent  (Agent / ReactAgent / SkillAgent / SandboxAgent)
   -> Tool / Skill / Sandbox
   -> AgentSession
-  -> Talker / Orchestrator / SharedState           ← chat 层（多 agent 默认入口）
-  -> Event / Runtime / Policy                      ← 进阶：tick 调度 / 自主仿真
+  -> Entity + World + Schedule → Runtime            ← 多 agent
+  -> Presets: sequential / fanout / debate / chatroom / groupchat
 ```
 
 整个 SDK 围绕**两条主线**：
 
 ```text
 单 agent 主线：  Model + Memory + Context + Tool + AgentSession  →  ReactAgent / SkillAgent / SandboxAgent
-多 agent 主线：  Talker (协议)  +  Orchestrator (容器)  +  SharedState (黑板)
-                ↑ 这一层就是 chat 层；它把"多 agent 协作"变成普通的 await 函数调用。
-
-Runtime 层是**进阶逃生通道**：tick 调度、policy 体系、自主群体仿真。
-                绝大多数多 agent 任务用 chat 层就够，不需要碰 Runtime。
+多 agent 主线：  Entity (协议)  +  World (环境)  +  Schedule (调度)  →  Runtime (循环)
 ```
 
 > 心智模型：
 > - **Agent** 是定义；**AgentSession** 是实例；
-> - **Talker** 是"谁能说话"的统一抽象；**Orchestrator** 是 Talker 的容器（且自身也是 Talker，可嵌套）；
-> - **Runtime** 是 tick-based 的并发世界，给需要异步独立调度的场景用。
+> - **Entity** 是"谁能行动"的统一抽象；**World** 决定 Entity 感知什么、行动如何生效；**Schedule** 决定谁下一个行动；
+> - **Runtime** 把三者串成 perceive-act-apply 循环。
 
 ## 1. Model
 
@@ -36,7 +32,7 @@ Runtime 层是**进阶逃生通道**：tick 调度、policy 体系、自主群�
 - `LiteLLMModel` 通过 LiteLLM 实现该契约。
 - `Message`、`ToolCall`、`LLMResponse` 定义 SDK 的消息 schema。
 
-`Message` 带一个可选的 `name` 字段——chat 层用它在多 agent prompt 里区分自己和他人，单 agent 场景下可忽略。
+`Message` 带一个可选的 `name` 字段——多 agent 场景中用它在 prompt 里区分自己和他人，单 agent 场景下可忽略。
 
 ## 2. Memory and Context
 
@@ -46,7 +42,7 @@ Memory 存对话状态。Context 决定每次发给模型的是哪一部分。
 - `InMemoryMemory` 是默认的进程内实现。
 - `BaseContext` 把 memory 渲染成模型消息。
 - `FullContext`、`SlidingWindowContext`、`SummaryContext` 是单 agent 的渲染策略。
-- `MultiAgentFormatter`（chat 层）是多 agent 场景的渲染策略——把别人的发言折叠成 user 消息里的 `<history>` 块，避免 LLM 把别人的话当成自己说过的。
+- `MultiAgentFormatter`（`easyagent/context/multi_agent.py`）是多 agent 场景的渲染策略——把别人的发言折叠成 user 消息里的 `<history>` 块，避免 LLM 把别人的话当成自己说过的。
 
 ## 3. Agent
 
@@ -66,8 +62,6 @@ SDK 提供四个具体 agent 类，通过继承叠加能力：
 | `SandboxAgent(ReactAgent)` | 在 ReactAgent 基础上，自动注册 `bash` / `write_file` / `read_file` 三个工具，并通过 `on_session_start` / `on_session_end` 管理沙箱生命周期。 |
 
 **Agent 不持有运行态**：当前对话 memory、当前任务状态、当前 sandbox 实例等都不属于 Agent，而属于 AgentSession。`Agent` 只持有 `_memory_factory` 与 `_context_factory`，它们在 `create_session()` 时被克隆为该 session 独立的实例。
-
-`BaseAgent.observe(msg)` 是新增的"只看不回"入口——把消息写进 session memory 但不触发 loop。chat 层的 Talker 协议在底层就靠这个。
 
 ## 4. Tool / Skill / Sandbox
 
@@ -92,9 +86,9 @@ AgentSession = Agent 引用 + Memory + 渲染状态 + Resources + 当前任务�
 - `session_id`、对所属 `agent` 的引用；
 - `memory`、`context`、`enabled_tools`、`loaded_skills`；
 - `sandbox`、`resources`；
-- `event_bus`（Runtime 注入时存在）、`metadata`、`status`、`iteration_count`、`final_output`、`loop_state`、`loop_steps`。
+- `event_bus`、`metadata`、`status`、`iteration_count`、`final_output`、`loop_state`、`loop_steps`。
 
-### 三个执行入口
+### 执行入口
 
 ```python
 class AgentSession:
@@ -103,217 +97,191 @@ class AgentSession:
 
     async def step(self) -> LoopStepResult:
         """跑一次 step（一次模型调用，可能加多次工具调用）。"""
-
-    async def on_events(self, events) -> list[BaseEvent]:
-        """处理一组 events 并产出新 events。Runtime 通过它驱动 session。"""
 ```
 
-- `run` / `step` 是单任务入口，chat 层和单 agent 场景都用它们。
-- `on_events` 是 **runtime 层** 的接入点，只有 tick-based runtime 才会走到。
+- `run` / `step` 是单任务入口，单 agent 场景和多 agent 中 `LLMEntity` 都通过它们驱动 agent。
 
-## 6. Chat 层（多 agent 默认入口）
+## 6. 多 Agent：Entity-World-Schedule 架构
 
-Chat 层是 `easyagent.chat` 子包提供的用户面 API。它把"多 agent 协作"抽象成同一个协议下的普通函数调用——**不用 event、不用 policy、不用 tick**。
+多 agent 层围绕三个**正交协议**展开——换任何一个都不影响另外两个。
 
-### 6.1 Talker 协议
+### 6.1 Entity 协议
 
 ```python
-class Talker(Protocol):
-    identity: Identity
-
-    async def __call__(
-        self,
-        msg: ChatMessage | None = None,
-        *,
-        channel: str = "default",
-    ) -> ChatMessage | None:
-        """处理消息（如果有）并产生回复。返回 None 表示这一轮选择沉默。"""
-
-    async def observe(self, msg: ChatMessage) -> None:
-        """只接收消息进入记忆，不产生回复。"""
+@runtime_checkable
+class Entity(Protocol):
+    @property
+    def id(self) -> str: ...
+    async def act(self, perception: Perception) -> Action | None: ...
 ```
 
-四种内置实现：
+Entity 是"谁能行动"的统一抽象。任何满足 `id` + `act()` 的对象都是 Entity。
+
+三种内置实现：
 
 | 实现 | 角色 |
 |---|---|
-| `LLMTalker` | 包装现有的 `BaseAgent`（ReactAgent / SkillAgent / SandboxAgent 任一）。每个 channel 一个独立 session。 |
-| `HumanTalker` | 通过 input/异步 queue 接 UI 或终端，让人类作为 Talker 参与。 |
-| `Orchestrator` | 多 Talker 容器（见 §6.3）。**它本身也是 Talker**——这就是嵌套的关键。 |
-| `RuntimeTalker` | 把整个 Runtime 包成 Talker，让 tick-based runtime 可以嵌进 chat 层。 |
+| `LLMEntity` | 包装现有的 `Agent`（ReactAgent / SkillAgent / SandboxAgent 任一）。每次 `act()` 从 Perception 重建 memory，驱动 agent 的 step 循环，返回 `Speak`。 |
+| `TeamEntity` | 把一个完整的 `Runtime` 包装成单个 Entity——嵌套的关键。`act()` 用 perception 里的最后一条消息 seed 内层 Runtime，运行到结束，返回内层的最终发言。 |
+| `HumanEntity` | 通过 `asyncio.Queue` 或 callback 接受人类输入。 |
 
-### 6.2 ChatMessage：自带路由的消息单位
+### 6.2 Perception 和 Action
 
-```python
-@dataclass
-class ChatMessage:
-    sender: Identity                                       # 谁说的
-    content: str | list[Block]
-    to: Literal["*"] | frozenset[str] = "*"                # 发给谁
-    channel: str = "default"                               # 哪个房间
-    role: Literal["user", "assistant", "system", "tool"]
-    reply_to: str | None = None                            # 回的哪条
-    metadata: dict = ...
-```
-
-关键：**路由信息（`to` / `channel`）写在消息上**，不写在订阅器上。这让 `await alice(msg)` 这种直接调用就能完整表达"alice 给 bob 发了个私信"，没有外部状态。
-
-`ChatMessage` 与 `Message` / `MessageEvent` 各司其职：
-- `Message`（model 层）：LLM API 协议格式；
-- `MessageEvent`（events 层）：bus 上的事件载荷；
-- `ChatMessage`（chat 层）：用户和 Talker 之间收发的对话单位。
-
-`MultiAgentFormatter` 负责 `list[ChatMessage] → list[Message]` 的转换，用户不感知。
-
-### 6.3 Orchestrator：多 Talker 容器
-
-`Orchestrator` 把一组成员 Talker 编排起来执行一段对话。它由四个**正交策略**驱动：
+**Perception** 是 Entity 在当前 tick 看到的世界快照，由 World 构造：
 
 ```python
-@dataclass
-class Orchestrator:
-    members: dict[str, Talker]
-    routing: Routing                # Q3: 谁能听见每条消息？
-    turn_taking: TurnTaking         # Q2: 下一个谁说话？
-    stop: StopCondition             # Q4: 何时结束？
-    summarize: Summarize            # Q6: 容器对外说什么？
-    identity: Identity
-    bus: EventBus | None = None
-    shared_state: SharedState | None = None
+@dataclass(frozen=True)
+class Perception:
+    entity_id: str
+    tick: int
+    slices: tuple[PerceptionSlice, ...]
+
+    def of_type(self, cls: type[T]) -> T | None: ...
+    def all_of_type(self, cls: type[T]) -> tuple[T, ...]: ...
 ```
 
-**Orchestrator 自己也实现 Talker 协议**——它的 `__call__(msg) → ChatMessage` 签名和单个 Talker 完全一样。这是嵌套能力的来源：把一个 Orchestrator 当成成员塞进另一个 Orchestrator，外层无需知道内层有多复杂。
+World 不同，Perception 里的 slice 就不同：
 
-`summarize` 决定容器对外说什么——比如 `ByJudge(judge)` 让一个 debate 容器只对外暴露 judge 的一句结论，alice/bob 的内部争论不外漏。这就是嵌套场景下"封装边界"的实现。
+| Slice | 来源 World | 内容 |
+|---|---|---|
+| `MessagesSlice` | `ConversationWorld` / `PipelineWorld` | `messages: tuple[ChatMessage, ...]` |
+| `SpatialSlice` | `SpatialWorld` | `position: tuple[int, int]`、`nearby: tuple[str, ...]` |
+| `StateSlice` | `StatefulWorld` | `snapshot: tuple[tuple[str, Any], ...]` |
 
-### 6.4 五个 Preset
+**Action** 是 Entity 决定做什么，由 `act()` 返回：
+
+| Action | 效果 |
+|---|---|
+| `Speak(content, to)` | 说话，`to="*"` 广播，`to=frozenset(...)` 私聊 |
+| `Move(target)` | 移动到新位置（SpatialWorld） |
+| `SetState(key, value)` | 写入黑板（StatefulWorld） |
+| `Silent()` | 什么都不做 |
+| `Composite(actions)` | 一个 tick 内执行多个 action |
+
+### 6.3 World 协议
 
 ```python
-sequential([t1, t2, t3], "go")          # 流水线，调用方写死顺序
-chatroom([t1, t2], announcement="...")  # 用户在 with 块里写 if/else 决定下一棒
-groupchat([t1, t2, t3])                 # LLM 在 msg.to 里 @ 下一棒
-debate([t1, t2], judge=t3)              # 第三方仲裁产出结论
-fanout([t1, t2, t3], "...")             # 同一 seed 同时丢给所有人
+@runtime_checkable
+class World(Protocol):
+    def observe(self, entity_id: str) -> Perception: ...
+    def apply(self, entity_id: str, action: Action) -> None: ...
+    def seed(self, content: str, *, sender: str = "user") -> None: ...
 ```
 
-每个 preset 都只是 `Orchestrator(...)` 的薄工厂，没有特殊代码路径。
+World 决定 Entity 感知什么、行动如何生效。换一个 World 就得到完全不同的行为——同一个 Entity 和 Schedule 可以用在对话场景，也可以用在空间探索场景。
 
-### 6.5 SharedState：黑板协作
+四种内置实现：
+
+| World | 用途 |
+|---|---|
+| `ConversationWorld` | 扁平聊天历史，所有 Entity 看到完整对话。 |
+| `PipelineWorld(order)` | 流水线：entity N 只看到 seed + entity N-1 的输出。 |
+| `SpatialWorld(grid, listen_radius)` | 2D 网格，距离限制感知。`Speak` 只有 radius 内的 Entity 能听到，`Move` 改变位置。 |
+| `StatefulWorld(inner)` | 装饰器：给任何 World 的 Perception 加上 `StateSlice`，处理 `SetState` action。配合 `SharedState` 使用。 |
+
+### 6.4 Schedule 协议
+
+```python
+@runtime_checkable
+class Schedule(Protocol):
+    def next(self, state: LoopState) -> list[str] | None: ...
+```
+
+返回下一个 tick 应该行动的 entity ID 列表，返回 `None` 表示结束。
+
+八种内置实现：
+
+| Schedule | 行为 |
+|---|---|
+| `TakeTurns(order)` | 固定顺序，每个说一次，全部说完返回 None |
+| `RoundRobin(ids)` | 循环轮流，每 tick 一个，永不停止 |
+| `AllParallel(ids)` | 每 tick 所有人同时行动 |
+| `RandomOrder(ids)` | 每 tick 一个，随机选 |
+| `Reactive` | 上一条 Speak 的 `to` 里提到的 entity 下一个说话 |
+| `MaxTicks(inner, n)` | 包装另一个 Schedule，最多 n 个 tick |
+| `UntilIdle(inner, grace)` | 包装另一个 Schedule，连续 grace 轮 Silent 后停止 |
+| `UntilPredicate(inner, predicate)` | 包装另一个 Schedule，谓词为真时停止 |
+
+### 6.5 Runtime
+
+```python
+class Runtime:
+    def __init__(self, world, entities, schedule, bus=None): ...
+    async def run(self, seed, *, sender="user") -> RuntimeResult: ...
+```
+
+Runtime 是胶水——它不包含业务逻辑，只执行 perceive-act-apply 循环：
+
+```text
+world.seed(seed, sender)
+while (active := schedule.next(state)) is not None:
+    for entity_id in active:
+        perception = world.observe(entity_id)
+        action = await entities[entity_id].act(perception)
+        if action:
+            world.apply(entity_id, action)    # Composite → 逐个 apply
+        state.action_log.append((entity_id, action or Silent()))
+    state.tick += 1
+return RuntimeResult(...)
+```
+
+可选传入 `EventBus` 用于观测（每个 `Speak` action 发 `MessageEvent`）。
+
+### 6.6 SharedState：黑板协作
 
 不是所有协作都该走对话。共编一份文档、投票、累积评分、等待外部信号——这些场景把状态硬塞进消息里很别扭。
 
-`SharedState` 提供版本化的并发安全 KV，配合 `OnSharedKey` 停止条件、`FromSharedState` summarize 策略，可以让一个 Orchestrator **完全不发消息**也能协作并停止。
+`SharedState` 提供版本化的并发安全 KV，配合 `StatefulWorld` 和 `UntilPredicate`，Entity 可以通过 `SetState` action 写黑板，通过 `StateSlice` 读黑板。
 
 ```python
 shared = SharedState()
-shared.subscribe("score", lambda v: print(f"score updated to {v}"))
-await shared.wait_for("final_report")        # 异步等待
-shared.attach_bus(bus)                        # 写入时发 StateChangedEvent
+world = StatefulWorld(inner=ConversationWorld(), shared=shared)
+
+# Entity 的 act() 里：
+return SetState(key="draft", value="...")   # 写黑板
+state_slice = perception.of_type(StateSlice) # 读黑板
 ```
 
-## 7. Runtime 层（进阶）
-
-Runtime 层是 chat 层下面的另一种执行模型。它不是 chat 层的实现细节，而是**一种平行的、面向异步并发的多 agent 执行环境**。
-
-```text
-Runtime = AgentSession 集合 + EventBus + 调度器（policy 三件套） + 停止控制
-```
-
-### 7.1 关键 API
+### 6.7 五个 Preset
 
 ```python
-runtime = ShuffledRuntime(
-    agents={"alice": AliceAgent(...), "bob": BobAgent(...)},
-    step_policy=DeliverToRecipients(),
-    stop_policy=AnyOf([StopWhenIdle(grace_steps=1), StopAfterTicks(max_ticks=5)]),
-)
-result = await runtime.run([MessageEvent(sender="user", to="*", content="...")])
+sequential([e1, e2, e3], "go")              # 流水线
+fanout([e1, e2, e3], "go")                  # 同时丢给所有人
+debate([e1, e2], rounds=3, seed="go")       # 多轮辩论，可选 judge
+chatroom([e1, e2])                          # 手动控制每一轮
+groupchat([e1, e2, e3], rounds=5, seed="go") # LLM 自己决定下一棒
 ```
 
-### 7.2 三种调度策略
+每个 preset 都只是 `Runtime(world=..., schedule=...)` 的薄工厂——没有特殊代码路径。
 
-`SchedulePolicy.order(session_ids, state)` 返回**批列表**：每批内并发，批与批顺序执行。
+### 6.8 嵌套
 
-- `Parallel`：`[[a, b, c]]` — 一批全并发，同 tick 内互不见。
-- `Sequential`：`[[a], [b], [c]]` — 每个 session 一批，固定顺序，前一个的输出对后一个可见。
-- `Shuffled`：每个 session 一批，顺序随机——最贴近"谁先看到群消息"的社会模拟。
-
-`ParallelRuntime` / `SequentialRuntime` / `ShuffledRuntime` 是 schedule_policy 的薄预设。
-
-### 7.3 Step / Stop policy
-
-- **`StepPolicy`** 决定一个事件要投递给哪些 session：
-  - `DeliverToRecipients` 按 `MessageEvent.to` 投递；
-  - `TickDriven` 忽略事件流，每 tick 给所有 session 一个 tick 信号让它们自行决定是否说话。
-- **`StopPolicy`** 决定何时终止：
-  - `StopWhenIdle` / `StopAfterTicks` / `StopAfterEvents` / `StopWhenMessageMatches` / `AnyOf`。
-
-### 7.4 Event 与 EventBus
-
-- **MessageEvent**（agent-to-agent 消息）通过 EventBus 广播 + StepPolicy 投递。
-- **WaitEvent**（Runtime 控制事件）当一个 session 的 `on_events` 返回 `WaitEvent` 时，Runtime 把该 session 标记为"下一 tick 重新唤醒"，**不进入 bus 历史**。
-- **遥测事件**（`LLMCalledEvent` / `LLMRespondedEvent` / `ToolCalledEvent` / `ToolResultEvent`）支持离线分析。
-
-EventBus 在 chat 层和 runtime 层是同一个东西，但承担的角色不同——chat 层把它当观测旁路（消息直送，bus 只复制一份做日志）；runtime 层把它当传输总线（事件就是消息）。
-
-## 8. Talker 机制 vs Runtime 机制
-
-这两套机制都解决"多 agent 协作"，但**模型完全不同**——选错了会很别扭。下面是对照表：
-
-| 维度 | Talker（chat 层） | Runtime（runtime 层） |
-|---|---|---|
-| **核心抽象** | `Talker.__call__(msg) → msg` —— 像普通函数 | `session.on_events(events) → events` —— 事件管道 |
-| **谁驱动循环** | **调用方**（`await orch(msg)` 拿结果就走） | **Runtime 自己**的 tick loop |
-| **执行模型** | 同步：一次发一个，等到回复 | 异步：每 tick 给所有 session 一次"事件批"，结果汇总成下批输入 |
-| **下一棒谁说话** | `TurnTaking` 策略**在容器内**决定，每轮一次 | `SchedulePolicy` 决定本 tick 跑哪些 session、是否并发 |
-| **何时停** | `StopCondition` 看历史决定，每轮检查 | `StopPolicy` 看 tick 状态决定，整轮检查 |
-| **组合性** | Orchestrator 自身是 Talker，**天然嵌套** | Runtime 不是 agent，要嵌套必须用 `RuntimeTalker` 包一层 |
-| **路由表达** | 写在 `ChatMessage.to` 上，是数据 | 由 `StepPolicy` 决定，是策略 |
-| **观测** | `bus` 是旁路，**不参与传输** | `bus` 既是观测又是事实上的总线 |
-| **典型用例** | pipeline / 群聊 / 嵌套子系统 / 黑板协作 | 社会仿真 / 自主群体 / 强并发批处理 / tick-based 调度 |
-| **代价** | 同步语义，单线流；做并发要靠 `fanout` | 概念多（事件 / policy 三件套 / tick），心智成本高 |
-
-### 什么时候用 Talker？
-
-绝大多数场景。包括：
-
-- 「先 A 再 B 再 C」（`sequential`）；
-- 「我在循环里决定下一棒谁说」（`chatroom` + if/else）；
-- 「让 LLM 自己决定下一棒」（`groupchat`）；
-- 「多人辩论 + 第三方仲裁」（`debate`）；
-- 「一个子系统作为更大 pipeline 里的一棒」（任意 Orchestrator 嵌套）；
-- 「成员之间通过黑板协作」（`SharedState` + `OnSharedKey`）。
-
-写法：`await sequential([...], "...")` / `async with chatroom(...)` / `await orch(msg)`。
-
-### 什么时候用 Runtime？
-
-只有真正需要 **tick-based 并发调度** 的场景：
-
-- 每个 agent 都有"自己的"循环节奏，不是被外层调用方推动的；
-- 需要 `Shuffled` / `Parallel` 这种"同 tick 内多人发言"的语义；
-- 需要 `WaitEvent` 让一个 agent "跳过这轮等下轮"；
-- 需要订阅 bus 上的 `MessageEvent` 历史做仿真分析；
-- 自主群体仿真——「谁先看到群消息谁先回复」这种社会模拟。
-
-写法：手写 `AgentSession.on_events`、配 `StepPolicy` / `SchedulePolicy` / `StopPolicy`、`runtime.run([MessageEvent(...)])`。`examples/14_advanced_runtime.py` 就是一个完整例子。
-
-### 两层互通
-
-它们不是非此即彼，可以**双向互嵌**：
+`TeamEntity` 把一个完整的 Runtime 包装成单个 Entity，所以任何 Runtime 都可以嵌进另一个 Runtime 当一棒：
 
 ```python
-# 把 runtime 当 Talker 嵌进 chat 层
-sim = ShuffledRuntime(agents={...}, ...)
-final = await sequential([planner, RuntimeTalker(sim), writer], "...")
+# 内层：debate Runtime
+debate_runtime = Runtime(world=..., entities={"alice": alice, "bob": bob}, schedule=...)
+debate_team = TeamEntity("debate_team", debate_runtime)
 
-# 也可以反过来——一个 chat-layer Orchestrator 实现了 Talker 协议，
-# 包一层适配后也可以作为 runtime 的 agent。
+# 外层：sequential pipeline
+result = await sequential([planner, debate_team, writer], "...")
 ```
 
-EventBus 在两层之间充当公共观测层——给 chat 层的 Orchestrator 传一个 bus，给 runtime 也用同一个 bus，UI 一套订阅代码就能监听两边。
+writer 只看到 debate_team 的一句结论，看不到 alice/bob 的原话——这就是 `TeamEntity` 提供的封装边界。
 
-## 9. 数据流
+## 7. 为什么是三个正交协议
+
+架构解耦成 Entity、World、Schedule 三个正交轴，是因为**它们的变化维度完全独立**：
+
+| 变化维度 | 例子 |
+|---|---|
+| 换 Entity | 同一个 ConversationWorld + RoundRobin，把 LLMEntity 换成 HumanEntity 就能让人参与 |
+| 换 World | 同一个 Entity + Schedule，把 ConversationWorld 换成 SpatialWorld 就从对话变成空间探索 |
+| 换 Schedule | 同一个 Entity + World，把 RoundRobin 换成 Reactive 就从固定轮次变成 LLM 自选下一棒 |
+
+这种正交性意味着 N 种 Entity × M 种 World × K 种 Schedule = N×M×K 种组合，而不是 N×M×K 种实现。
+
+## 8. 数据流
 
 ### 单 Agent 执行（不变）
 
@@ -327,40 +295,34 @@ Agent.run(user_input)
   └─ return AgentRunResult.from_session(session)
 ```
 
-### Chat 层多 Talker 协作
+### 多 Agent：perceive-act-apply 循环
 
 ```text
-Orchestrator.__call__(msg)
-  └─ ctx = TurnContext(members, channel, history=[], ...)
-  └─ if msg: routing.targets(msg, ctx) → 各 member.observe(msg)
-  └─ turn loop:
-       │ stop.check(ctx) → 决定是否退出
-       │ turn_taking.next(ctx) → 选下一发言者
-       │ reply = await member()             # Talker 协议调用
-       │ routing.targets(reply, ctx) → 路由给其他成员 observe
-       │ ctx.history.append(reply)
-  └─ summarize.produce(ctx, identity) → 容器对外的 ChatMessage
-```
-
-### Runtime 层多 AgentSession 协作
-
-```text
-Runtime.run(seed_events)
-  └─ enter all sessions (on_session_start)
+Runtime.run(seed)
+  └─ world.seed(seed, sender="user")
   └─ tick loop:
-       │ StepPolicy.deliveries(event, sessions, state) → Deliveries
-       │ SchedulePolicy.order(session_ids, state) → [[batch1], [batch2], ...]
-       │ for batch:
-       │     gather(session.on_events(events) for each session in batch)
-       │     produced events:
-       │       • WaitEvent  → 调度该 session 下 tick 重跑（不上 bus）
-       │       • 其他事件   → _state.events + bus.publish + 后续 batch 可见
-       │ StopPolicy.should_stop(state)
-  └─ exit all sessions (on_session_end)
-  └─ RuntimeResult(state, messages)
+       │ schedule.next(state) → active entity IDs (or None → stop)
+       │ for each entity_id in active:
+       │     perception = world.observe(entity_id)
+       │     action = await entity.act(perception)
+       │     if action: world.apply(entity_id, action)
+       │     state.action_log.append((entity_id, action))
+       │ state.tick += 1
+  └─ RuntimeResult(actions, ticks)
 ```
 
-## 10. Public API
+### LLMEntity 内部（Agent ↔ Perception 桥接）
+
+```text
+LLMEntity.act(perception)
+  └─ 从 perception 取 MessagesSlice
+  └─ 清空 agent memory
+  └─ 重建 memory：自己的消息 → assistant，别人的 → user（带 name 前缀）
+  └─ 驱动 agent 的 step 循环
+  └─ 取 final_output → Speak(content=...)
+```
+
+## 9. Public API
 
 ```python
 # 单 agent + 工具
@@ -372,56 +334,43 @@ from easyagent import (
     EventBus, MessageEvent,
 )
 
-# 多 agent：chat 层（默认入口）
-from easyagent.chat import (
-    ChatMessage, Identity, Talker,
-    LLMTalker, HumanTalker, RuntimeTalker,
-    Orchestrator, ManualSession,
-    SharedState, StateChangedEvent,
-    MultiAgentFormatter,
-    sequential, fanout, chatroom, groupchat, debate,
-)
-from easyagent.chat.strategies import (
-    Routing, Broadcast, Direct, Pipeline,
-    TurnTaking, Conducted, Reactive, RoundRobin, Random, Weighted, Selected, Manual,
-    StopCondition, MaxRounds, Idle, AfterAllSpoken, OnPredicate, OnSharedKey, AnyOf, AllOf,
-    Summarize, LastMessage, Aggregate, ByJudge, FromSharedState, Custom,
-)
-
-# 进阶：runtime 层
-from easyagent.runtime import (
-    BaseRuntime, TickBasedRuntime,
-    ParallelRuntime, SequentialRuntime, ShuffledRuntime,
-    Parallel, Sequential, Shuffled,                  # SchedulePolicy
-    DeliverToRecipients, TickDriven,                 # StepPolicy
-    StopWhenIdle, StopAfterTicks, StopAfterEvents,   # StopPolicy
-    StopWhenMessageMatches, AnyOf,
-)
-from easyagent.events import (
-    BaseEvent, WaitEvent,
-    LLMCalledEvent, LLMRespondedEvent,
-    ToolCalledEvent, ToolResultEvent,
+# 多 agent：Entity-World-Schedule
+from easyagent import (
+    # 协议
+    Entity, World, Schedule, Runtime, RuntimeResult,
+    # 感知与动作
+    Perception, Speak, Silent, ChatMessage,
+    # Entity 实现
+    LLMEntity, TeamEntity, HumanEntity,
+    # World 实现
+    ConversationWorld, PipelineWorld, SpatialWorld, StatefulWorld, SharedState,
+    # Schedule 实现
+    TakeTurns, RoundRobin, AllParallel, MaxTicks, UntilIdle, Reactive,
+    # 预设
+    sequential, fanout, debate, chatroom, groupchat,
 )
 ```
 
-## 11. 命名速查
+## 10. 命名速查
 
 | 概念 | 类型 | 层 | 说明 |
 |---|---|---|---|
 | `Agent` / `BaseAgent` | 类 | agent | 单 agent 定义 + 最小契约 |
 | `ReactAgent` / `SkillAgent` / `SandboxAgent` | 类 | agent | 加上工具 / 技能 / 沙箱的 ReAct agent |
 | `AgentSession` | 类 | agent | agent 的运行实例（分身） |
-| **`Talker`** | Protocol | **chat** | 「能说话」的统一抽象 |
-| `LLMTalker` / `HumanTalker` / `RuntimeTalker` | 类 | chat | Talker 的具体实现 |
-| `ChatMessage` / `Identity` | 类 | chat | 用户层对话原语 |
-| **`Orchestrator`** | 类 | **chat** | 多 Talker 容器，自身也是 Talker |
-| `Routing` / `TurnTaking` / `StopCondition` / `Summarize` | Protocol | chat | Orchestrator 的四种策略 |
-| `sequential` / `fanout` / `chatroom` / `groupchat` / `debate` | 函数 | chat | preset 工厂 |
-| `SharedState` | 类 | chat | 黑板协作原语 |
-| `MultiAgentFormatter` | 类 | chat | 多 agent prompt 渲染（替代 SlidingWindowContext） |
-| **`Runtime`** / `TickBasedRuntime` | 类 | **runtime** | tick-based 多 session 执行环境 |
-| `EventBus` | 类 | events | 事件记录与分发（chat / runtime 共用） |
-| `MessageEvent` / `WaitEvent` | 类 | events | 通信原语 / Runtime 控制事件 |
-| `StepPolicy` / `SchedulePolicy` / `StopPolicy` | Protocol | runtime | 事件投递 / 单 tick 顺序 / 终止条件 |
-| `session.run` / `step` / `on_events` | 方法 | agent | 单任务 / 单步 / runtime 入口 |
-| `BaseAgent.observe(msg)` | 方法 | agent | 只看不回 |
+| **`Entity`** | Protocol | **core** | 「谁能行动」的统一抽象 |
+| `LLMEntity` / `TeamEntity` / `HumanEntity` | 类 | entities | Entity 的具体实现 |
+| **`World`** | Protocol | **core** | Entity 感知和作用的环境 |
+| `ConversationWorld` / `PipelineWorld` / `SpatialWorld` / `StatefulWorld` | 类 | worlds | World 的具体实现 |
+| **`Schedule`** | Protocol | **core** | 决定谁下一个行动 |
+| `TakeTurns` / `RoundRobin` / `AllParallel` / `Reactive` / `MaxTicks` / `UntilIdle` | 类 | core | Schedule 的具体实现 |
+| **`Runtime`** | 类 | **core** | perceive-act-apply 循环 |
+| `Perception` / `PerceptionSlice` | 类 | core | Entity 在当前 tick 看到的世界快照 |
+| `Action` / `Speak` / `Move` / `SetState` / `Silent` / `Composite` | 类 | core | Entity 决定做什么 |
+| `ChatMessage` | 类 | core | 多 agent 消息原语 |
+| `SharedState` | 类 | worlds | 黑板协作原语 |
+| `MultiAgentFormatter` | 类 | context | 多 agent prompt 渲染 |
+| `sequential` / `fanout` / `chatroom` / `groupchat` / `debate` | 函数 | presets | preset 工厂 |
+| `EventBus` | 类 | events | 事件记录与分发 |
+| `MessageEvent` | 类 | events | 通信观测事件 |
+| `RuntimeResult` | 类 | core | Runtime 执行结果 |
