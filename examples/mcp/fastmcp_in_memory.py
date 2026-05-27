@@ -1,4 +1,4 @@
-"""第 11 层：通过 FastMCP 接入 MCP 工具。
+"""通过 FastMCP in-memory server 接入 MCP 工具。
 
 安装可选依赖：
 
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from fastmcp import FastMCP
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

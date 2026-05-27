@@ -1,4 +1,4 @@
-"""第 12 层：从 MCP config 加载并注册工具。
+"""从 MCP config 加载并注册工具。
 
 这个例子展示 EasyAgent 侧推荐的 MCP 配置形态：
 
@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
