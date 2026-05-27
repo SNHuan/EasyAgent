@@ -1,6 +1,6 @@
 """EasyAgent — an incrementally designed agent SDK.
 
-v0.4.0: Entity-World-Schedule architecture for multi-agent.
+v0.5.0: MCP tool discovery and registration support.
 Single-agent layer (Agent, ReactAgent, etc.) is unchanged.
 """
 
@@ -37,6 +37,7 @@ from easyagent.entities import HumanEntity, LLMEntity, TeamEntity
 from easyagent.events import EventBus, MessageEvent
 from easyagent.model.litellm_model import LiteLLMModel
 from easyagent.model.schema import Message
+from easyagent.mcp import MCPToolset, load_mcp_tools, register_mcp_tools
 from easyagent.presets import chatroom, debate, fanout, groupchat, sequential
 from easyagent.skill import SkillManager
 from easyagent.tool import ToolManager, register_tool
@@ -49,7 +50,7 @@ from easyagent.worlds import (
     StatefulWorld,
 )
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     # ── single-agent (unchanged) ───────────────────────────────────────
@@ -66,6 +67,9 @@ __all__ = [
     "ToolManager",
     "SkillManager",
     "register_tool",
+    "MCPToolset",
+    "load_mcp_tools",
+    "register_mcp_tools",
     # ── core protocols ─────────────────────────────────────────────────
     "Entity",
     "World",

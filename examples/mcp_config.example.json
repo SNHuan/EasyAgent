@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "literature": {
+      "command": "python",
+      "args": ["./examples/mcp_servers/literature_server.py"]
+    },
+    "materials": {
+      "command": "python",
+      "args": ["./materials_mcp/server.py"]
+    },
+    "remote_search": {
+      "url": "https://example.com/mcp"
+    }
+  }
+}
