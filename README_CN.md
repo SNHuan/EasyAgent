@@ -29,6 +29,7 @@ pip install -e ".[dev]"
 ```bash
 pip install easy-agent-sdk[sandbox]
 pip install easy-agent-sdk[web]
+pip install easy-agent-sdk[mcp]
 pip install easy-agent-sdk[all]
 ```
 
@@ -100,6 +101,7 @@ from easyagent import (
     LiteLLMModel, Message,
     EventBus, MessageEvent,
     ToolManager, SkillManager, register_tool,
+    MCPToolset, load_mcp_tools, register_mcp_tools,
     # 多 agent 协议
     Entity, World, Schedule, Runtime, RuntimeResult,
     # 感知与动作类型
@@ -138,6 +140,10 @@ python examples/11_debate_and_judge.py       # 辩论 + 第三方仲裁
 python examples/12_nested.py                 # TeamEntity：Runtime 当 Entity 嵌套
 python examples/13_shared_state.py           # SharedState + StatefulWorld 黑板协作
 python examples/14_advanced_runtime.py       # SpatialWorld：2D 网格 + 距离感知
+
+# MCP 示例（外部工具来源）
+python examples/mcp/fastmcp_in_memory.py     # 把 FastMCP server 包成 EasyAgent 工具
+python examples/mcp/config_load.py           # 从 mcp_config.example.json 加载工具
 ```
 
 ## Tools
@@ -171,6 +177,52 @@ agent = ReactAgent(
 
 `tools=[...]` 直接接受类或实例。Agent 会自动注册一个 `end` 工具，模型调用它
 即可主动结束循环。
+
+## MCP Tools
+
+EasyAgent 可以把 MCP server 当成外部工具来源接入。先安装 MCP 可选依赖：
+
+```bash
+pip install easy-agent-sdk[mcp]
+```
+
+配置使用标准 FastMCP/MCP 形态。`mcpServers` 的 key 天然就是工具分类：
+
+```json
+{
+  "mcpServers": {
+    "literature": {
+      "command": "python",
+      "args": ["./examples/mcp/servers/literature_server.py"]
+    }
+  }
+}
+```
+
+把发现到的 MCP 工具注册进 `ToolManager`，再由每个 session 决定本轮暴露给模型的工具：
+
+```python
+from easyagent import LiteLLMModel, ReactAgent, ToolManager, register_mcp_tools
+
+tool_manager = ToolManager(discover_builtin=False)
+literature_tools = await register_mcp_tools(
+    tool_manager,
+    mcp_config,
+    servers=["literature"],
+)
+
+agent = ReactAgent(model=LiteLLMModel("gpt-4o-mini"), tool_manager=tool_manager)
+session = agent.create_session()
+session.enabled_tools.extend(literature_tools)
+```
+
+也可以按 FastMCP tool tags 过滤：
+
+```python
+await register_mcp_tools(tool_manager, mcp_config, tags=["demo"])
+```
+
+可运行示例见 `examples/mcp/`。
 
 ## Skills
 

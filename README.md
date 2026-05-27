@@ -31,6 +31,7 @@ Optional extras:
 ```bash
 pip install easy-agent-sdk[sandbox]
 pip install easy-agent-sdk[web]
+pip install easy-agent-sdk[mcp]
 pip install easy-agent-sdk[all]
 ```
 
@@ -105,6 +106,7 @@ from easyagent import (
     LiteLLMModel, Message,
     EventBus, MessageEvent,
     ToolManager, SkillManager, register_tool,
+    MCPToolset, load_mcp_tools, register_mcp_tools,
     # multi-agent protocols
     Entity, World, Schedule, Runtime, RuntimeResult,
     # perception & action types
@@ -143,6 +145,10 @@ python examples/11_debate_and_judge.py       # Third-party judge after debate
 python examples/12_nested.py                 # TeamEntity: Runtime-as-Entity nesting
 python examples/13_shared_state.py           # SharedState + StatefulWorld blackboard
 python examples/14_advanced_runtime.py       # SpatialWorld: 2D grid + range-limited perception
+
+# MCP examples (external tool sources)
+python examples/mcp/fastmcp_in_memory.py     # Wrap a FastMCP server as EasyAgent tools
+python examples/mcp/config_load.py           # Load tools from mcp_config.example.json
 ```
 
 ## Tools
@@ -176,6 +182,55 @@ agent = ReactAgent(
 
 Pass tool classes or instances directly via `tools=[...]`. The agent
 automatically registers an `end` tool — call it to terminate the loop early.
+
+## MCP Tools
+
+EasyAgent can consume MCP servers as external tool sources. Install the MCP
+extra first:
+
+```bash
+pip install easy-agent-sdk[mcp]
+```
+
+Use a standard FastMCP/MCP config. The `mcpServers` keys act as natural tool
+categories:
+
+```json
+{
+  "mcpServers": {
+    "literature": {
+      "command": "python",
+      "args": ["./examples/mcp/servers/literature_server.py"]
+    }
+  }
+}
+```
+
+Register discovered MCP tools into a `ToolManager`, then decide per session
+which tools are visible to the model:
+
+```python
+from easyagent import LiteLLMModel, ReactAgent, ToolManager, register_mcp_tools
+
+tool_manager = ToolManager(discover_builtin=False)
+literature_tools = await register_mcp_tools(
+    tool_manager,
+    mcp_config,
+    servers=["literature"],
+)
+
+agent = ReactAgent(model=LiteLLMModel("gpt-4o-mini"), tool_manager=tool_manager)
+session = agent.create_session()
+session.enabled_tools.extend(literature_tools)
+```
+
+You can also filter FastMCP tools by tags:
+
+```python
+await register_mcp_tools(tool_manager, mcp_config, tags=["demo"])
+```
+
+See `examples/mcp/` for runnable examples.
 
 ## Skills
 
