@@ -5,6 +5,72 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-05-28
+
+EasyAgent now supports MCP as an external tool source. Users can point the SDK
+at a FastMCP/MCP config, discover remote tools, register them into a
+`ToolManager`, and decide per `AgentSession` which tools are visible to the
+model.
+
+### Added
+
+**MCP integration (`easyagent/mcp/`)**
+- `MCPToolset` — discovers tools from a FastMCP-compatible source and exposes
+  them as EasyAgent tools.
+- `load_mcp_tools(source, *, servers=None, tags=None)` — returns MCP-backed
+  tool adapters without mutating a registry.
+- `register_mcp_tools(tool_manager, source, *, servers=None, tags=None)` —
+  incrementally registers discovered MCP tools into an existing `ToolManager`
+  and returns the registered tool names.
+- `MCPToolAdapter` — bridges MCP tool calls into EasyAgent's `Tool` protocol.
+- `FastMCPClientAdapter` — wraps `fastmcp.Client` while keeping FastMCP as an
+  implementation detail of the MCP module.
+- `MCPToolInfo` / `MCPToolResult` plus result normalization helpers for MCP
+  text, structured content, resource blocks, and errors.
+
+**Tool selection**
+- MCP config server names can be used as natural categories via
+  `servers=["literature"]`.
+- FastMCP tool tags are preserved from `meta["_fastmcp"]["tags"]` and can be
+  filtered with `tags=[...]`.
+- MCP tool registration is additive: registering one MCP server does not clear
+  existing local or remote tools.
+
+**Examples**
+- `examples/mcp/fastmcp_in_memory.py` — in-memory FastMCP server consumed by
+  EasyAgent.
+- `examples/mcp/config_load.py` — loads `mcp_config.example.json`, registers a
+  selected MCP server's tools, and enables them on a session.
+- `examples/mcp/mcp_config.example.json` — standard `mcpServers` config.
+- `examples/mcp/servers/literature_server.py` — small local FastMCP server for
+  examples.
+
+**Tests**
+- `easyagent/test/test_mcp.py` covers MCP tool discovery, ToolManager
+  registration, tag filtering, server filtering, and result normalization.
+
+### Changed
+
+- `easyagent` top-level exports now include `MCPToolset`, `load_mcp_tools`,
+  and `register_mcp_tools`.
+- Default installation now includes sandbox, web, and MCP dependencies:
+  `docker`, `httpx`, and `fastmcp`.
+- `requirements.txt` now mirrors the default runtime dependency set.
+- `README.md` and `README_CN.md` document MCP config loading and session-level
+  tool enablement.
+- MCP examples live under `examples/mcp/` instead of the numbered learning
+  path, because MCP is an external integration rather than a core ladder step.
+
+### Install
+
+```bash
+pip install -U easy-agent-sdk==0.5.1
+```
+
+MCP support is included in the default install.
+
+---
+
 ## [0.4.0] - 2026-04-29
 
 The multi-agent layer is rebuilt from scratch around three orthogonal protocols — **Entity** (who acts), **World** (what they perceive), **Schedule** (who goes when) — replacing the previous Talker/Orchestrator/Runtime architecture. The single-agent layer is unchanged.
