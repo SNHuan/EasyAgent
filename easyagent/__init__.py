@@ -1,6 +1,6 @@
 """EasyAgent — an incrementally designed agent SDK.
 
-v0.5.0: MCP tool discovery and registration support.
+v0.5.1: Default install includes sandbox, web, and MCP dependencies.
 Single-agent layer (Agent, ReactAgent, etc.) is unchanged.
 """
 
@@ -50,7 +50,7 @@ from easyagent.worlds import (
     StatefulWorld,
 )
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 __all__ = [
     # ── single-agent (unchanged) ───────────────────────────────────────

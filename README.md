@@ -26,14 +26,8 @@ cd EasyAgent
 pip install -e ".[dev]"
 ```
 
-Optional extras:
-
-```bash
-pip install easy-agent-sdk[sandbox]
-pip install easy-agent-sdk[web]
-pip install easy-agent-sdk[mcp]
-pip install easy-agent-sdk[all]
-```
+The default install includes model adapters, sandbox helpers, web helpers, and
+MCP integration.
 
 ## Quick Start
 
@@ -185,12 +179,8 @@ automatically registers an `end` tool — call it to terminate the loop early.
 
 ## MCP Tools
 
-EasyAgent can consume MCP servers as external tool sources. Install the MCP
-extra first:
-
-```bash
-pip install easy-agent-sdk[mcp]
-```
+EasyAgent can consume MCP servers as external tool sources. MCP support is
+included in the default install.
 
 Use a standard FastMCP/MCP config. The `mcpServers` keys act as natural tool
 categories:

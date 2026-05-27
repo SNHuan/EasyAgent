@@ -24,14 +24,7 @@ cd EasyAgent
 pip install -e ".[dev]"
 ```
 
-可选依赖：
-
-```bash
-pip install easy-agent-sdk[sandbox]
-pip install easy-agent-sdk[web]
-pip install easy-agent-sdk[mcp]
-pip install easy-agent-sdk[all]
-```
+默认安装已经包含模型适配、沙箱辅助、Web 辅助和 MCP 接入。
 
 ## 快速开始
 
@@ -180,11 +173,7 @@ agent = ReactAgent(
 
 ## MCP Tools
 
-EasyAgent 可以把 MCP server 当成外部工具来源接入。先安装 MCP 可选依赖：
-
-```bash
-pip install easy-agent-sdk[mcp]
-```
+EasyAgent 可以把 MCP server 当成外部工具来源接入。MCP 支持已经包含在默认安装中。
 
 配置使用标准 FastMCP/MCP 形态。`mcpServers` 的 key 天然就是工具分类：
 
