@@ -205,8 +205,11 @@ class Agent(BaseAgent):
         messages = await session.get_model_messages(self.build_system_prompt(session))
         response = None
         await self._emit_llm_called(session, messages)
+        stream_sequence = 0
         async for chunk in self.default_model.call_with_history_stream(messages):
             if chunk.content:
+                stream_sequence += 1
+                await self._emit_llm_stream_chunk(session, chunk.content, stream_sequence)
                 yield chunk.content
             if chunk.done:
                 response = chunk.response
@@ -270,6 +273,21 @@ class Agent(BaseAgent):
                 content=response.content,
                 tool_calls=_serialize_tool_calls(response),
                 usage=response.usage or {},
+            )
+        )
+
+    async def _emit_llm_stream_chunk(self, session: AgentSession, content: str, sequence: int) -> None:
+        if not session.event_bus:
+            return
+        from easyagent.events import LLMStreamChunkEvent
+
+        model_name = getattr(self.default_model, "model", "") or getattr(self.default_model, "_model", "")
+        await session.event_bus.publish(
+            LLMStreamChunkEvent(
+                agent_id=session.session_id,
+                model=model_name,
+                content=content,
+                sequence=sequence,
             )
         )
 

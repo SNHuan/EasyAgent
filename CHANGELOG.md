@@ -28,12 +28,15 @@ token, and extended with Agent Skills-compatible skill packages.
   `--db`, `--host`, `--port`, and `--open`.
 - Bundled dashboard UI for session lists, timeline events, message history,
   token usage, event payloads, event mix charts, DB status, and resizable panes.
-- Local HTTP API endpoints: `/api/health` and `/api/traces`.
+- Local HTTP API endpoints: `/api/health`, `/api/traces`, and the SSE endpoint
+  `/api/traces/stream`.
 
 **Streaming**
 - Model adapters can stream `LLMStreamChunk` values.
 - `Agent` and `ReactAgent` support streaming model output while still emitting
   normal trace events and token usage when providers return usage metadata.
+- Streaming responses now emit `LLMStreamChunkEvent` trace rows so the local
+  dashboard can update message bubbles before the final response completes.
 
 **Agent Skills-compatible loading**
 - Skills now follow the [Agent Skills](https://agentskills.io/) `SKILL.md`

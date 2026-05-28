@@ -104,8 +104,11 @@ class ReactAgent(Agent):
         await self._emit_llm_called(session, messages)
         response = None
         emitted_text = False
+        stream_sequence = 0
         async for chunk in self.default_model.call_with_history_stream(messages, **llm_kwargs):
             if chunk.content:
+                stream_sequence += 1
+                await self._emit_llm_stream_chunk(session, chunk.content, stream_sequence)
                 emitted_text = True
                 if is_debug():
                     self._log.info(f"[{label}] {chunk.content}", color=Color.GRAY)
@@ -294,6 +297,19 @@ class ReactAgent(Agent):
             content=response.content,
             tool_calls=_serialize_tool_calls(response),
             usage=response.usage or {},
+        ))
+
+    async def _emit_llm_stream_chunk(self, session: AgentSession, content: str, sequence: int) -> None:
+        if not session.event_bus:
+            return
+        from easyagent.events.types import LLMStreamChunkEvent
+
+        model_name = getattr(self.default_model, "model", "") or getattr(self.default_model, "_model", "")
+        await session.event_bus.publish(LLMStreamChunkEvent(
+            agent_id=session.session_id,
+            model=model_name,
+            content=content,
+            sequence=sequence,
         ))
 
     async def _emit_tool_called(self, session: AgentSession, tool_call: Any) -> None:

@@ -161,3 +161,11 @@ class LLMRespondedEvent(BaseEvent):
     content: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class LLMStreamChunkEvent(BaseEvent):
+    agent_id: AgentId = ""
+    model: str = ""
+    content: str = ""
+    sequence: int = 0

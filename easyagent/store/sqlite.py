@@ -99,6 +99,21 @@ class SQLiteStore:
             ).fetchall()
         return [self._event_from_row(row) for row in rows]
 
+    def trace_signature(self) -> tuple[int, int, int]:
+        """Return a compact signature for polling readers."""
+
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS event_count,
+                    COALESCE(MAX(id), 0) AS max_event_id,
+                    (SELECT COUNT(*) FROM sessions) AS session_count
+                FROM events
+                """
+            ).fetchone()
+        return (row["session_count"], row["event_count"], row["max_event_id"])
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row

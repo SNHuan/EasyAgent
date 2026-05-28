@@ -8,6 +8,7 @@ from easyagent.events.types import (
     AgentStartedEvent,
     LLMCalledEvent,
     LLMRespondedEvent,
+    LLMStreamChunkEvent,
     MessageEvent,
     RuntimeFinishedEvent,
     RuntimeStartedEvent,
@@ -34,4 +35,5 @@ __all__ = [
     "ToolResultEvent",
     "LLMCalledEvent",
     "LLMRespondedEvent",
+    "LLMStreamChunkEvent",
 ]

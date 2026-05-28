@@ -10,7 +10,7 @@ from easyagent import (
     SQLiteStore,
     TraceRecorder,
 )
-from easyagent.model.schema import LLMResponse
+from easyagent.model.schema import LLMResponse, LLMStreamChunk
 
 
 class FakeLLM:
@@ -22,6 +22,23 @@ class FakeLLM:
                 "completion_tokens": 2,
                 "total_tokens": 5,
             },
+        )
+
+
+class FakeStreamingLLM(FakeLLM):
+    async def call_with_history_stream(self, messages, **kwargs):
+        yield LLMStreamChunk(content="he")
+        yield LLMStreamChunk(content="llo")
+        yield LLMStreamChunk(
+            done=True,
+            response=LLMResponse(
+                content="hello",
+                usage={
+                    "prompt_tokens": 3,
+                    "completion_tokens": 2,
+                    "total_tokens": 5,
+                },
+            ),
         )
 
 
@@ -51,6 +68,32 @@ async def test_trace_recorder_persists_agent_run_to_memory_store():
         "LLMCalledEvent",
         "LLMRespondedEvent",
         "AgentFinishedEvent",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_trace_recorder_persists_stream_chunks():
+    store = MemoryStore()
+    bus = EventBus()
+    TraceRecorder(store).attach(bus)
+
+    agent = ReactAgent(model=FakeStreamingLLM(), max_iterations=2)
+    chunks = [chunk async for chunk in agent.stream("hello", event_bus=bus)]
+
+    session = store.list_sessions()[0]
+    events = store.list_events(session.session_id)
+    assert chunks == ["he", "llo"]
+    assert [event.event_type for event in events] == [
+        "AgentStartedEvent",
+        "LLMCalledEvent",
+        "LLMStreamChunkEvent",
+        "LLMStreamChunkEvent",
+        "LLMRespondedEvent",
+        "AgentFinishedEvent",
+    ]
+    assert [event.payload["content"] for event in events if event.event_type == "LLMStreamChunkEvent"] == [
+        "he",
+        "llo",
     ]
 
 

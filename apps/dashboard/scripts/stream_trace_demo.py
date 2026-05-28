@@ -4,12 +4,61 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from easyagent import EventBus, LiteLLMModel, ReactAgent, SQLiteStore, TraceRecorder
+
+
+class InspectDashboardTraceDb:
+    name = "inspect_dashboard_trace_db"
+    type = "function"
+    description = "Inspect the current EasyAgent dashboard SQLite trace database."
+    parameters = {
+        "type": "object",
+        "properties": {},
+    }
+
+    def __init__(self, db_path: Path) -> None:
+        self.db_path = db_path
+
+    def init(self) -> None:
+        pass
+
+    def execute(self, **_: Any) -> str:
+        store = SQLiteStore(self.db_path)
+        sessions = store.list_sessions(limit=5)
+        signature = store.trace_signature()
+        return (
+            f"Trace DB: {self.db_path.resolve()}\n"
+            f"Sessions: {signature[0]}\n"
+            f"Events: {signature[1]}\n"
+            f"Latest event row id: {signature[2]}\n"
+            f"Recent session ids: {', '.join(session.session_id for session in sessions) or 'none'}"
+        )
+
+
+class DescribeDashboardSurface:
+    name = "describe_dashboard_surface"
+    type = "function"
+    description = "Describe the EasyAgent dashboard panes and the live tracing data they consume."
+    parameters = {
+        "type": "object",
+        "properties": {},
+    }
+
+    def init(self) -> None:
+        pass
+
+    def execute(self, **_: Any) -> str:
+        return (
+            "Dashboard panes: session index, timeline, messages, event mix, token usage, "
+            "and highlighted event payload. Live updates arrive through /api/traces/stream "
+            "and are backed by SQLite trace rows."
+        )
 
 
 async def run_real_stream(db_path: Path, model: str, prompt: str) -> None:
@@ -20,9 +69,11 @@ async def run_real_stream(db_path: Path, model: str, prompt: str) -> None:
     agent = ReactAgent(
         model=LiteLLMModel(model),
         system_prompt=(
-            "You are an EasyAgent live dashboard demo. Answer in concise markdown. "
-            "Mention that the response is being streamed and traced into SQLite."
+            "You are an EasyAgent live dashboard demo. Answer in structured markdown with "
+            "clear section headings, concise paragraphs, and a small risk checklist. "
+            "Make the answer long enough that streaming is visible in a dashboard."
         ),
+        tools=[InspectDashboardTraceDb(db_path), DescribeDashboardSurface()],
         max_iterations=4,
     )
     session = agent.create_session()
@@ -51,8 +102,12 @@ def main() -> None:
     parser.add_argument(
         "--prompt",
         default=(
-            "Write a short live observability status for EasyAgent. "
-            "Use three bullet points: session, streaming, and tracing."
+            "First call inspect_dashboard_trace_db, then call describe_dashboard_surface. "
+            "Design a practical observability rollout plan for an EasyAgent-based research assistant. "
+            "Cover the full lifecycle: session creation, LLM streaming, tool calls, token accounting, "
+            "SQLite trace persistence, SSE dashboard updates, failure handling, and release verification. "
+            "Include an architecture outline, a step-by-step implementation plan, a debugging workflow, "
+            "and five concrete acceptance criteria. Keep it specific to EasyAgent."
         ),
         help="Prompt to stream through the real model.",
     )
@@ -63,4 +118,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

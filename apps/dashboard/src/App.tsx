@@ -255,11 +255,13 @@ function inferSessionTitle(session: RawTraceSession): string {
   const finished = session.events.find((event) => event.event_type === "AgentFinishedEvent")
   const firstTool = session.events.find((event) => event.event_type === "ToolCalledEvent")
   const firstResponse = session.events.find((event) => event.event_type === "LLMRespondedEvent")
+  const streamChunk = session.events.find((event) => event.event_type === "LLMStreamChunkEvent")
 
   if (failed) return String(failed.payload.error ?? "Provider channel unavailable")
   if (firstTool) return String(firstTool.payload.tool_name ?? "Tool call session")
   if (finished) return truncate(String(finished.payload.output ?? "Completed session"), 58)
   if (firstResponse) return truncate(formatAssistantContent(firstResponse.payload), 58)
+  if (streamChunk) return truncate(String(streamChunk.payload.content ?? "Streaming response"), 58)
   return "Agent session"
 }
 
@@ -275,6 +277,8 @@ function eventSummaryText(event: RawTraceEvent): string {
       return `${String(event.payload.model ?? "unknown model")} · ${String(event.payload.message_count ?? 0)} messages`
     case "LLMRespondedEvent":
       return truncate(formatAssistantContent(event.payload), 82)
+    case "LLMStreamChunkEvent":
+      return truncate(String(event.payload.content ?? "Streaming response chunk."), 82)
     case "ToolCalledEvent":
       return `${String(event.payload.tool_name ?? "tool")} ${formatArguments(event.payload.arguments)}`
     case "ToolResultEvent":
@@ -319,29 +323,97 @@ function buildMessageView(session: TraceSession): TraceMessage[] {
     })
   }
 
-  return session.raw.events.flatMap<TraceMessage>((event) => {
-    if (event.event_type === "LLMRespondedEvent") {
-      return [{
-        id: `${event.event_id}-assistant`,
-        role: "assistant" as const,
-        content: formatAssistantContent(event.payload),
-        source: String(event.payload.model ?? "LLM response"),
-        at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
-        eventId: event.event_id,
-      }]
+  const messages: TraceMessage[] = []
+  let userAdded = false
+  let streamingMessage: TraceMessage | null = null
+
+  function flushStreamingMessage() {
+    if (streamingMessage) {
+      messages.push(streamingMessage)
+      streamingMessage = null
     }
+  }
+
+  for (const event of session.raw.events) {
+    if (event.event_type === "LLMCalledEvent" && !userAdded && Array.isArray(event.payload.messages)) {
+      const userMessage = event.payload.messages.findLast((message) =>
+        isRecord(message) && normalizeRole(message.role) === "user",
+      )
+      if (isRecord(userMessage)) {
+        messages.push({
+          id: `${event.event_id}-user`,
+          role: "user",
+          content: formatMessageContent(userMessage.content),
+          source: "prompt",
+          at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
+          eventId: event.event_id,
+        })
+        userAdded = true
+      }
+    }
+
+    if (event.event_type === "LLMStreamChunkEvent") {
+      const content = String(event.payload.content ?? "")
+      if (content.length === 0) continue
+      if (!streamingMessage) {
+        streamingMessage = {
+          id: `${event.session_id}-streaming-assistant`,
+          role: "assistant",
+          content: "",
+          source: String(event.payload.model ?? "streaming response"),
+          at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
+          eventId: event.event_id,
+        }
+      }
+      streamingMessage = {
+        ...streamingMessage,
+        content: `${streamingMessage.content}${content}`,
+        eventId: event.event_id,
+      }
+      continue
+    }
+
+    if (event.event_type === "LLMRespondedEvent") {
+      const content = formatAssistantContent(event.payload)
+      if (content.length > 0) {
+        if (streamingMessage) {
+          streamingMessage = {
+            ...streamingMessage,
+            id: `${event.event_id}-assistant`,
+            content,
+            source: String(event.payload.model ?? streamingMessage.source),
+            eventId: event.event_id,
+          }
+          flushStreamingMessage()
+        } else {
+          messages.push({
+            id: `${event.event_id}-assistant`,
+            role: "assistant",
+            content,
+            source: String(event.payload.model ?? "LLM response"),
+            at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
+            eventId: event.event_id,
+          })
+        }
+      }
+      continue
+    }
+
     if (event.event_type === "ToolResultEvent") {
-      return [{
+      flushStreamingMessage()
+      messages.push({
         id: `${event.event_id}-tool`,
-        role: "tool" as const,
+        role: "tool",
         content: String(event.payload.result ?? ""),
         source: String(event.payload.tool_name ?? "tool result"),
         at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
         eventId: event.event_id,
-      }]
+      })
     }
-    return []
-  })
+  }
+
+  flushStreamingMessage()
+  return messages
 }
 
 function buildSessionUsageBars(session: TraceSession): UsageBar[] {

@@ -121,7 +121,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
-        last_signature: tuple[int, int] | None = None
+        last_signature: tuple[int, int, int] | None = None
         try:
             while True:
                 signature = _db_signature(self.db_path)
@@ -205,12 +205,13 @@ def _int_param(values: list[str] | None, default: int) -> int:
         return default
 
 
-def _db_signature(path: Path) -> tuple[int, int]:
+def _db_signature(path: Path) -> tuple[int, int, int]:
+    if not path.exists():
+        return (0, 0, 0)
     try:
-        stat = path.stat()
-    except FileNotFoundError:
-        return (0, 0)
-    return (stat.st_mtime_ns, stat.st_size)
+        return SQLiteStore(path).trace_signature()
+    except Exception:
+        return (0, 0, 0)
 
 
 def _missing_dashboard_html() -> str:
