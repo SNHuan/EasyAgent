@@ -1,7 +1,7 @@
 """第 03 层：引入 ReAct 和 Tool。
 
 ReactAgent = Agent + 工具调用 + ReAct 循环（模型 → 工具 → 模型 → ...
-直到调用 ``end`` 或达到 max_iterations）。
+直到模型返回没有工具调用的最终文本，或达到 max_iterations）。
 
 通过 ``tools=[...]`` 把工具直接注入到 agent 的本地 ToolManager。
 （``@register_tool`` 装饰器是另一种全局注册路径，配合

@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+from dataclasses import fields, is_dataclass
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
+
+from easyagent.events import (
+    AgentFailedEvent,
+    AgentFinishedEvent,
+    AgentStartedEvent,
+    BaseEvent,
+    EventBus,
+    LLMRespondedEvent,
+)
+from easyagent.tracing.schema import EventTrace, SessionTrace
+
+if TYPE_CHECKING:
+    from easyagent.store.base import TraceStore
+
+
+class TraceRecorder:
+    """Subscribe to an EventBus and persist session traces."""
+
+    def __init__(self, store: "TraceStore") -> None:
+        self.store = store
+        self._sessions: dict[str, SessionTrace] = {}
+
+    def attach(self, bus: EventBus) -> "TraceRecorder":
+        bus.subscribe(BaseEvent, self.record)
+        return self
+
+    def detach(self, bus: EventBus) -> None:
+        bus.unsubscribe(BaseEvent, self.record)
+
+    def record(self, event: BaseEvent) -> None:
+        trace = event_to_trace(event)
+        session = self._ensure_session(trace)
+
+        if isinstance(event, AgentStartedEvent):
+            session.status = "running"
+            session.started_at = event.timestamp
+            session.agent_id = event.agent_id or session.agent_id
+        elif isinstance(event, AgentFinishedEvent):
+            session.status = "completed"
+            session.ended_at = event.timestamp
+        elif isinstance(event, AgentFailedEvent):
+            session.status = "failed"
+            session.ended_at = event.timestamp
+        elif isinstance(event, LLMRespondedEvent):
+            session.token_usage.add(event.usage)
+
+        session.event_count += 1
+        self.store.append_event(trace)
+        self.store.upsert_session(session)
+
+    def _ensure_session(self, event: EventTrace) -> SessionTrace:
+        if event.session_id in self._sessions:
+            return self._sessions[event.session_id]
+
+        existing = self.store.get_session(event.session_id)
+        if existing is not None:
+            self._sessions[event.session_id] = existing
+            return existing
+
+        session = SessionTrace(
+            session_id=event.session_id,
+            agent_id=event.agent_id,
+            started_at=event.timestamp,
+        )
+        self._sessions[event.session_id] = session
+        self.store.upsert_session(session)
+        return session
+
+
+def event_to_trace(event: BaseEvent) -> EventTrace:
+    payload = _event_payload(event)
+    session_id = _session_id(event, payload)
+    agent_id = str(payload.get("agent_id") or payload.get("sender") or session_id)
+    return EventTrace(
+        event_id=event.event_id,
+        session_id=session_id,
+        event_type=type(event).__name__,
+        timestamp=event.timestamp,
+        agent_id=agent_id,
+        payload=payload,
+    )
+
+
+def _session_id(event: BaseEvent, payload: dict[str, Any]) -> str:
+    for key in ("session_id", "agent_id", "sender"):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    return event.event_id
+
+
+def _event_payload(event: BaseEvent) -> dict[str, Any]:
+    if not is_dataclass(event):
+        return {}
+    payload: dict[str, Any] = {}
+    for field in fields(event):
+        if field.name in {"event_id", "timestamp"}:
+            continue
+        payload[field.name] = _jsonable(getattr(event, field.name))
+    return payload
+
+
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, frozenset):
+        return sorted(value)
+    if isinstance(value, (set, tuple)):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, list):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if is_dataclass(value):
+        return {field.name: _jsonable(getattr(value, field.name)) for field in fields(value)}
+    return value

@@ -125,3 +125,17 @@ class LLMResponse(BaseModel):
     tool_calls: list[ToolCall] | None = None
     usage: dict[str, Any] | None = None
 
+
+class LLMStreamChunk(BaseModel):
+    """One chunk from a streaming LLM call.
+
+    Intermediate chunks usually carry ``content`` and/or ``reasoning_content``.
+    The final chunk has ``done=True`` and includes the assembled
+    :class:`LLMResponse` so callers can update memory exactly as they do for a
+    normal non-streaming call.
+    """
+
+    content: str = ""
+    reasoning_content: str | None = None
+    done: bool = False
+    response: LLMResponse | None = None

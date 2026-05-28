@@ -3,6 +3,7 @@ from easyagent.events.bus import EventBus
 from easyagent.events.types import (
     BROADCAST,
     AgentFinishedEvent,
+    AgentFailedEvent,
     AgentId,
     AgentStartedEvent,
     LLMCalledEvent,
@@ -28,6 +29,7 @@ __all__ = [
     "RuntimeFinishedEvent",
     "AgentStartedEvent",
     "AgentFinishedEvent",
+    "AgentFailedEvent",
     "ToolCalledEvent",
     "ToolResultEvent",
     "LLMCalledEvent",

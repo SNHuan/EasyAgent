@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from easyagent.model.schema import Message
 
 if TYPE_CHECKING:
     from easyagent.agent.session import AgentRunResult, AgentSession, LoopStepResult
+    from easyagent.events import EventBus
 
 
 class BaseAgent(ABC):
@@ -15,7 +16,22 @@ class BaseAgent(ABC):
     session_class: type[AgentSession] = None  # type: ignore[assignment]
 
     @abstractmethod
-    async def run(self, user_input: Any, *, session: "AgentSession | None" = None) -> "AgentRunResult": ...
+    async def run(
+        self,
+        user_input: Any,
+        *,
+        session: "AgentSession | None" = None,
+        event_bus: "EventBus | None" = None,
+    ) -> "AgentRunResult": ...
+
+    async def stream(
+        self,
+        user_input: Any,
+        *,
+        session: "AgentSession | None" = None,
+        event_bus: "EventBus | None" = None,
+    ) -> AsyncIterator[str]:
+        ...
 
     def create_session(self) -> "AgentSession":
         from easyagent.agent.session import AgentSession

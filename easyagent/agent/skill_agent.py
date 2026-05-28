@@ -27,7 +27,7 @@ class SkillAgent(ReactAgent):
             model=m,
             tools=[get_weather],
             skills=["my-skill"],
-            skill_root="./skills",
+            # Defaults to .easyagent/skills; set EA_SKILLS_DIR for .claude/skills, etc.
         )
     """
 

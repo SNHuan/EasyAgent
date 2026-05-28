@@ -122,6 +122,14 @@ class AgentStartedEvent(BaseEvent):
 class AgentFinishedEvent(BaseEvent):
     agent_id: AgentId = ""
     output: str = ""
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class AgentFailedEvent(BaseEvent):
+    agent_id: AgentId = ""
+    error: str = ""
+    messages: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -143,6 +151,7 @@ class LLMCalledEvent(BaseEvent):
     agent_id: AgentId = ""
     model: str = ""
     message_count: int = 0
+    messages: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -150,4 +159,5 @@ class LLMRespondedEvent(BaseEvent):
     agent_id: AgentId = ""
     model: str = ""
     content: str = ""
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, Any] = field(default_factory=dict)

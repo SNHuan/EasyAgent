@@ -1,7 +1,7 @@
 """ReAct Agent prompt templates"""
 
 
-REACT_SYSTEM_PROMPT = """\
+REACT_PROMPT_HEADER = """\
 You are an AI assistant that can reason step by step and use tools when needed.
 
 ## Tool Use Rules
@@ -18,23 +18,26 @@ You are an AI assistant that can reason step by step and use tools when needed.
 - Think before deciding whether to call a tool.
 - Use tools to get external information or take actions.
 - Do not make up facts that should be verified with tools.
+"""
 
+REACT_COMPLETION_RULES = """\
 ## Completion Rules
 
-- You finish a task by calling the `end` tool. Pass your full final answer
-  in the `data` argument.
-- After calling `end`, your loop terminates immediately. Do NOT also write
-  the final answer in your message content — content is discarded once
-  `end` is called. Put EVERYTHING that the caller needs into `data`.
-- If you genuinely cannot complete the task, still call `end` with `data`
-  set to a clear explanation of why.
+- Finish a task by writing the final answer directly in assistant message content.
+- If you genuinely cannot complete the task, explain why plainly.
+"""
 
+REACT_OUTPUT_STYLE = """\
 ## Output Style
 
 - Keep intermediate text concise and useful.
 - Do not emit a fixed "Thought / Action / Observation" template unless explicitly requested.
 - When not using a tool, continue reasoning normally in plain text.
 """
+
+REACT_SYSTEM_PROMPT = "\n\n".join(
+    [REACT_PROMPT_HEADER, REACT_COMPLETION_RULES, REACT_OUTPUT_STYLE]
+)
 
 
 REACT_SKILLS_HEADER = "## Available Skills"
