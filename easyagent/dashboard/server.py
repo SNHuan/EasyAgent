@@ -4,7 +4,6 @@ import json
 import mimetypes
 import time
 import webbrowser
-from dataclasses import dataclass
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,11 +17,6 @@ from easyagent.tracing.schema import EventTrace, SessionTrace
 DEFAULT_DB_PATH = Path(".easyagent/traces.db")
 
 
-@dataclass
-class DashboardState:
-    db_path: Path
-
-
 def run_dashboard(
     *,
     db_path: str | Path = DEFAULT_DB_PATH,
@@ -33,9 +27,8 @@ def run_dashboard(
     """Run the local EasyAgent trace dashboard."""
 
     resolved_db_path = Path(db_path).expanduser().resolve()
-    state = DashboardState(db_path=resolved_db_path)
     static_dir = _find_static_dir()
-    handler = partial(DashboardHandler, state=state, static_dir=static_dir)
+    handler = partial(DashboardHandler, db_path=resolved_db_path, static_dir=static_dir)
     server = ThreadingHTTPServer((host, port), handler)
     url = f"http://{host}:{port}"
 
@@ -60,17 +53,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     def __init__(
         self,
         *args: Any,
-        state: DashboardState,
+        db_path: Path,
         static_dir: Path | None,
         **kwargs: Any,
     ) -> None:
-        self.state = state
+        self.db_path = db_path
         self.static_dir = static_dir
         super().__init__(*args, directory=str(static_dir) if static_dir else None, **kwargs)
-
-    @property
-    def db_path(self) -> Path:
-        return self.state.db_path
 
     def handle(self) -> None:
         try:
@@ -104,26 +93,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.path = "/"
         super().do_GET()
 
-    def do_POST(self) -> None:
-        parsed = urlparse(self.path)
-        if parsed.path == "/api/traces/source":
-            try:
-                payload = self._read_json_body()
-                raw_db_path = str(payload.get("db_path") or "").strip()
-                if not raw_db_path:
-                    self._send_json({"ok": False, "error": "db_path is required"}, status=400)
-                    return
-                self.state.db_path = Path(raw_db_path).expanduser().resolve()
-                self._send_json({
-                    "ok": True,
-                    **load_trace_payload(self.db_path),
-                })
-            except ValueError as exc:
-                self._send_json({"ok": False, "error": str(exc)}, status=400)
-            return
-
-        self.send_error(404)
-
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Cache-Control", "no-store")
@@ -136,18 +105,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
-
-    def _read_json_body(self) -> dict[str, Any]:
-        length = int(self.headers.get("Content-Length", "0") or "0")
-        if length <= 0:
-            return {}
-        try:
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            raise ValueError("invalid JSON body") from exc
-        if not isinstance(payload, dict):
-            raise ValueError("JSON body must be an object")
-        return payload
 
     def _send_html(self, html: str) -> None:
         body = html.encode("utf-8")
@@ -164,13 +121,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
-        last_signature: tuple[str, int, int, int] | None = None
+        last_signature: tuple[int, int, int] | None = None
         try:
             while True:
-                db_path = self.db_path
-                signature = (str(db_path), *_db_signature(db_path))
+                signature = _db_signature(self.db_path)
                 if signature != last_signature:
-                    payload = load_trace_payload(db_path, limit=limit, offset=offset)
+                    payload = load_trace_payload(self.db_path, limit=limit, offset=offset)
                     self._write_sse("snapshot", payload)
                     last_signature = signature
                 else:

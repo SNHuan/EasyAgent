@@ -723,8 +723,6 @@ function App() {
   const [activeMessageId, setActiveMessageId] = useState("")
   const [dbMenuOpen, setDbMenuOpen] = useState(false)
   const [dbPath, setDbPath] = useState("local fixture")
-  const [dbPathInput, setDbPathInput] = useState("")
-  const [dbSwitchError, setDbSwitchError] = useState("")
   const [dbConnected, setDbConnected] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const dbMenuRef = useRef<HTMLDivElement>(null)
@@ -738,29 +736,7 @@ function App() {
     const nextDbPath = payload.db_path ?? "unknown"
     setRawSessionData(payload.sessions ?? [])
     setDbPath(nextDbPath)
-    setDbPathInput(nextDbPath)
     setDbConnected(Boolean(payload.connected))
-  }
-
-  async function switchTraceDb() {
-    const nextPath = dbPathInput.trim()
-    if (!nextPath) return
-    setDbSwitchError("")
-    try {
-      const response = await fetch("/api/traces/source", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ db_path: nextPath }),
-      })
-      const payload = await response.json() as TraceApiResponse & { error?: string }
-      if (!response.ok) {
-        setDbSwitchError(payload.error ?? "Unable to switch trace database.")
-        return
-      }
-      applyTracePayload(payload)
-    } catch {
-      setDbSwitchError("Unable to reach the dashboard server.")
-    }
   }
 
   useEffect(() => {
@@ -1010,29 +986,8 @@ function App() {
                     <div className="text-xs text-muted-foreground">Current file</div>
                     <div className="mt-1 break-all font-mono text-xs">{dbPath}</div>
                   </div>
-                  <div className="mt-3 grid gap-2">
-                    <label className="grid gap-1.5 text-xs">
-                      <span className="text-muted-foreground">Switch dashboard source</span>
-                      <input
-                        className="h-8 rounded-md border bg-background px-2 font-mono text-xs outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
-                        value={dbPathInput}
-                        placeholder="/absolute/path/to/traces.db"
-                        onChange={(event) => setDbPathInput(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") void switchTraceDb()
-                        }}
-                      />
-                    </label>
-                    {dbSwitchError && (
-                      <div className="text-xs text-red-600">{dbSwitchError}</div>
-                    )}
-                    <button
-                      className="h-8 rounded-md border px-3 text-xs font-medium hover:bg-muted/60"
-                      type="button"
-                      onClick={() => void switchTraceDb()}
-                    >
-                      Switch DB
-                    </button>
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    Start the dashboard with <span className="font-mono">easyagent dashboard --db path/to/traces.db</span> to inspect another database.
                   </div>
                 </div>
               )}
