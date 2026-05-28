@@ -566,24 +566,45 @@ function App() {
   const sessionRows = useMemo(() => rawSessionData.map(toTraceSession), [rawSessionData])
   const availableModels = useMemo(() => Array.from(new Set(sessionRows.map((session) => session.model))), [sessionRows])
 
+  function applyTracePayload(payload: TraceApiResponse) {
+    setRawSessionData(payload.sessions ?? [])
+    setDbPath(payload.db_path ?? "unknown")
+    setDbConnected(Boolean(payload.connected))
+  }
+
   useEffect(() => {
     const controller = new AbortController()
+    let eventSource: EventSource | null = null
+    let loadedFromStream = false
 
     async function loadTraces() {
       try {
         const response = await fetch("/api/traces", { signal: controller.signal })
         if (!response.ok) return
         const payload = await response.json() as TraceApiResponse
-        setRawSessionData(payload.sessions ?? [])
-        setDbPath(payload.db_path ?? "unknown")
-        setDbConnected(Boolean(payload.connected))
+        applyTracePayload(payload)
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return
       }
     }
 
-    void loadTraces()
-    return () => controller.abort()
+    if ("EventSource" in window) {
+      eventSource = new EventSource("/api/traces/stream")
+      eventSource.addEventListener("snapshot", (event) => {
+        loadedFromStream = true
+        applyTracePayload(JSON.parse(event.data) as TraceApiResponse)
+      })
+      eventSource.onerror = () => {
+        if (!loadedFromStream) void loadTraces()
+      }
+    } else {
+      void loadTraces()
+    }
+
+    return () => {
+      controller.abort()
+      eventSource?.close()
+    }
   }, [])
 
   const filteredSessions = useMemo(() => {

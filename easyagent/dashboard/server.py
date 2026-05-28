@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import time
 import webbrowser
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -60,6 +61,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.static_dir = static_dir
         super().__init__(*args, directory=str(static_dir) if static_dir else None, **kwargs)
 
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/api/health":
@@ -70,6 +77,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             limit = _int_param(query.get("limit"), 200)
             offset = _int_param(query.get("offset"), 0)
             self._send_json(load_trace_payload(self.db_path, limit=limit, offset=offset))
+            return
+        if parsed.path == "/api/traces/stream":
+            query = parse_qs(parsed.query)
+            limit = _int_param(query.get("limit"), 200)
+            offset = _int_param(query.get("offset"), 0)
+            self._send_trace_stream(limit=limit, offset=offset)
             return
 
         if self.static_dir is None:
@@ -100,6 +113,35 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_trace_stream(self, *, limit: int, offset: int) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        last_signature: tuple[int, int] | None = None
+        try:
+            while True:
+                signature = _db_signature(self.db_path)
+                if signature != last_signature:
+                    payload = load_trace_payload(self.db_path, limit=limit, offset=offset)
+                    self._write_sse("snapshot", payload)
+                    last_signature = signature
+                else:
+                    self._write_sse("ping", {"ts": time.time()})
+                time.sleep(1)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            return
+
+    def _write_sse(self, event: str, payload: dict[str, Any]) -> None:
+        body = json.dumps(payload, ensure_ascii=False, default=str)
+        self.wfile.write(f"event: {event}\n".encode("utf-8"))
+        for line in body.splitlines():
+            self.wfile.write(f"data: {line}\n".encode("utf-8"))
+        self.wfile.write(b"\n")
+        self.wfile.flush()
 
     def guess_type(self, path: str) -> str:
         if path.endswith(".js"):
@@ -163,6 +205,14 @@ def _int_param(values: list[str] | None, default: int) -> int:
         return default
 
 
+def _db_signature(path: Path) -> tuple[int, int]:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return (0, 0)
+    return (stat.st_mtime_ns, stat.st_size)
+
+
 def _missing_dashboard_html() -> str:
     return """<!doctype html>
 <html>
@@ -181,4 +231,3 @@ def _missing_dashboard_html() -> str:
     <p>The trace API is still available at <code>/api/traces</code>.</p>
   </body>
 </html>"""
-
