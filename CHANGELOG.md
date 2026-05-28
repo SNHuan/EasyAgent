@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 EasyAgent 0.6.1 polishes the local dashboard experience for real streaming
 agent runs. The dashboard can now update while an LLM response is still being
-generated, and the timeline stays readable by folding noisy stream chunks.
+generated, keeps stream-heavy timelines readable, and presents token usage with
+clear current-session versus all-session scopes.
 
 ### Added
 
@@ -18,6 +19,9 @@ generated, and the timeline stays readable by folding noisy stream chunks.
   before the final `LLMRespondedEvent`.
 - The dashboard SSE endpoint now detects SQLite trace changes from table state
   instead of relying on file modification timestamps.
+- Token Usage now has `Current` and `All` modes: `Current` shows the selected
+  session input/output mix as a donut chart, while `All` shows all sessions as
+  an hourly stacked bar chart.
 
 ### Changed
 
@@ -25,6 +29,13 @@ generated, and the timeline stays readable by folding noisy stream chunks.
   assistant output, then reconcile with the final response payload.
 - Timeline display collapses consecutive stream chunk events into one grouped
   row while preserving the original event ids in the payload panel.
+- Token totals, input tokens, and output tokens now follow the selected Token
+  Usage scope instead of always showing the selected session.
+- Filter and Trace DB popovers now close on outside click or Escape.
+- Event mix and token usage charts now include subtle reveal animations.
+- Trace DB selection is intentionally configured at startup via
+  `easyagent dashboard --db path/to/traces.db`; the dashboard no longer exposes
+  a runtime DB switching control.
 - Removed dashboard-only helper scripts from `apps/dashboard/scripts`.
 
 ### Install
