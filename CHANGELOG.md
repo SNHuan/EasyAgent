@@ -5,6 +5,80 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-05-28
+
+EasyAgent 0.6 turns the SDK into a more inspectable agent framework while
+keeping the core package lightweight. Agent runs can now be persisted as
+structured traces, inspected in a bundled local dashboard, streamed token by
+token, and extended with Agent Skills-compatible skill packages.
+
+### Added
+
+**Tracing and stores**
+- `easyagent.tracing` with `TraceRecorder`, `SessionTrace`, `EventTrace`, and
+  `TokenUsage` for recording agent sessions.
+- `easyagent.store` with `MemoryStore`, `JSONLStore`, and `SQLiteStore`.
+- Agent lifecycle, LLM, tool-call, tool-result, finished, and failed events are
+  recorded as JSON-friendly trace payloads.
+- `examples/15_tracing.py` demonstrates persisting traces to SQLite.
+
+**Dashboard and CLI**
+- New `easyagent dashboard` command starts a local observability dashboard.
+- The dashboard reads `.easyagent/traces.db` by default and supports
+  `--db`, `--host`, `--port`, and `--open`.
+- Bundled dashboard UI for session lists, timeline events, message history,
+  token usage, event payloads, event mix charts, DB status, and resizable panes.
+- Local HTTP API endpoints: `/api/health` and `/api/traces`.
+
+**Streaming**
+- Model adapters can stream `LLMStreamChunk` values.
+- `Agent` and `ReactAgent` support streaming model output while still emitting
+  normal trace events and token usage when providers return usage metadata.
+
+**Agent Skills-compatible loading**
+- Skills now follow the [Agent Skills](https://agentskills.io/) `SKILL.md`
+  directory standard.
+- `SKILL.md` requires YAML frontmatter with at least `name` and `description`;
+  `name` must match the parent directory.
+- Default skill discovery path is `.easyagent/skills`.
+- `EA_SKILLS_DIR` can point at compatible skill directories such as
+  `.claude/skills` or `.codex/skills`.
+- Skill examples moved under `examples/.easyagent/skills`.
+
+**Tests**
+- Tests now live in top-level `tests/` instead of the package directory.
+- Added tracing store tests for in-memory, JSONL, and SQLite persistence.
+
+### Changed
+
+- ReAct completion no longer depends on dedicated `end` or `think` tools.
+  A plain assistant response with no tool calls is treated as the final answer.
+- Removed built-in `end` and `think` tools from the default ReAct prompt.
+- Top-level exports now include stream chunks, tracing types, and store types.
+- README / README_CN document the dashboard command and Agent Skills loading.
+- `pyproject.toml` now exposes the `easyagent` console script and includes the
+  bundled dashboard static assets in package data.
+
+### Removed
+
+- `easyagent/tool/end.py`
+- `easyagent/tool/think.py`
+- In-package `easyagent/test/` test tree.
+
+### Install
+
+```bash
+pip install -U easy-agent-sdk==0.6.0
+```
+
+Open the dashboard:
+
+```bash
+easyagent dashboard --db .easyagent/traces.db --open
+```
+
+---
+
 ## [0.5.1] - 2026-05-28
 
 EasyAgent now supports MCP as an external tool source. Users can point the SDK

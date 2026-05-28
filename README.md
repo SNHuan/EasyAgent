@@ -49,6 +49,22 @@ async def main():
 asyncio.run(main())
 ```
 
+## Local Dashboard
+
+EasyAgent can persist agent session traces to SQLite and open a local
+dashboard for logs, events, message history, and token usage:
+
+```bash
+easyagent dashboard
+```
+
+By default the CLI reads `.easyagent/traces.db`. You can point it at another
+trace store and open the browser automatically:
+
+```bash
+easyagent dashboard --db path/to/traces.db --open
+```
+
 Create `easyagent/config/config.yaml` or configure LiteLLM through environment
 variables:
 
@@ -174,8 +190,9 @@ agent = ReactAgent(
 )
 ```
 
-Pass tool classes or instances directly via `tools=[...]`. The agent
-automatically registers an `end` tool — call it to terminate the loop early.
+Pass tool classes or instances directly via `tools=[...]`. The ReAct loop
+continues while the model returns tool calls; a plain assistant message with no
+tool calls is treated as the final answer.
 
 ## MCP Tools
 
@@ -224,11 +241,13 @@ See `examples/mcp/` for runnable examples.
 
 ## Skills
 
-Skills are directory packages loaded on demand. `SKILL.md` is the required
-entry file; supporting files can live alongside it:
+Skills are [Agent Skills](https://agentskills.io/) compatible directory
+packages loaded on demand. `SKILL.md` is the required entry file and must
+include YAML frontmatter with at least `name` and `description`. The `name`
+must match the parent directory name.
 
 ```text
-skills/my-skill/
+.easyagent/skills/my-skill/
 ├── SKILL.md
 ├── references/
 ├── templates/
@@ -242,9 +261,14 @@ from easyagent import LiteLLMModel, SkillAgent
 agent = SkillAgent(
     model=LiteLLMModel("gpt-4o-mini"),
     skills=["my-skill"],
-    skill_root="./skills",
 )
 ```
+
+By default EasyAgent discovers skills from `.easyagent/skills`. Set
+`EA_SKILLS_DIR` to load skills from another Agent Skills-compatible directory
+such as `.claude/skills` or `.codex/skills`. Multiple directories can be
+separated with the platform path separator (`:` on macOS/Linux, `;` on
+Windows).
 
 ## Multi-agent
 
@@ -302,7 +326,7 @@ easyagent/
 ├── prompt/     # System-prompt builders
 ├── sandbox/    # Local / Docker sandboxes
 ├── skill/      # SKILL.md loading
-├── tool/       # Tool registry + built-ins (bash, file, web, end)
+├── tool/       # Tool registry + built-ins (bash, file, web, skill helpers)
 ├── config/     # Config loading
 └── debug/      # Logging
 ```

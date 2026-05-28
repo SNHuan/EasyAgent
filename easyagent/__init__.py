@@ -1,7 +1,7 @@
 """EasyAgent — an incrementally designed agent SDK.
 
-v0.5.1: Default install includes sandbox, web, and MCP dependencies.
-Single-agent layer (Agent, ReactAgent, etc.) is unchanged.
+v0.6.0: Adds tracing persistence, streaming model responses, Agent Skills
+loading, and the local dashboard CLI.
 """
 
 from easyagent.agent import Agent, AgentRunResult, AgentSession, ReactAgent, SandboxAgent, SkillAgent
@@ -36,11 +36,13 @@ from easyagent.core import (
 from easyagent.entities import HumanEntity, LLMEntity, TeamEntity
 from easyagent.events import EventBus, MessageEvent
 from easyagent.model.litellm_model import LiteLLMModel
-from easyagent.model.schema import Message
+from easyagent.model.schema import LLMStreamChunk, Message
 from easyagent.mcp import MCPToolset, load_mcp_tools, register_mcp_tools
 from easyagent.presets import chatroom, debate, fanout, groupchat, sequential
 from easyagent.skill import SkillManager
+from easyagent.store import JSONLStore, MemoryStore, SQLiteStore, TraceStore
 from easyagent.tool import ToolManager, register_tool
+from easyagent.tracing import EventTrace, SessionTrace, TokenUsage, TraceRecorder
 from easyagent.worlds import (
     ConversationWorld,
     Grid2D,
@@ -50,7 +52,7 @@ from easyagent.worlds import (
     StatefulWorld,
 )
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 __all__ = [
     # ── single-agent (unchanged) ───────────────────────────────────────
@@ -61,12 +63,21 @@ __all__ = [
     "SkillAgent",
     "SandboxAgent",
     "LiteLLMModel",
+    "LLMStreamChunk",
     "Message",
     "MessageEvent",
     "EventBus",
     "ToolManager",
     "SkillManager",
     "register_tool",
+    "TraceRecorder",
+    "SessionTrace",
+    "EventTrace",
+    "TokenUsage",
+    "TraceStore",
+    "MemoryStore",
+    "JSONLStore",
+    "SQLiteStore",
     "MCPToolset",
     "load_mcp_tools",
     "register_mcp_tools",

@@ -46,6 +46,21 @@ async def main():
 asyncio.run(main())
 ```
 
+## 本地 Dashboard
+
+EasyAgent 可以把 agent session trace 持久化到 SQLite，并通过本地
+dashboard 查看日志、事件、消息历史和 token 统计：
+
+```bash
+easyagent dashboard
+```
+
+默认读取 `.easyagent/traces.db`。也可以指定 trace store，并自动打开浏览器：
+
+```bash
+easyagent dashboard --db path/to/traces.db --open
+```
+
 可以创建 `easyagent/config/config.yaml`，也可以直接使用 LiteLLM 支持的环境变量：
 
 ```yaml
@@ -168,8 +183,8 @@ agent = ReactAgent(
 )
 ```
 
-`tools=[...]` 直接接受类或实例。Agent 会自动注册一个 `end` 工具，模型调用它
-即可主动结束循环。
+`tools=[...]` 直接接受类或实例。ReAct 循环会在模型返回工具调用时继续执行；
+当模型返回无工具调用的普通 assistant 文本时，将其视为最终答案。
 
 ## MCP Tools
 
@@ -215,10 +230,12 @@ await register_mcp_tools(tool_manager, mcp_config, tags=["demo"])
 
 ## Skills
 
-Skill 是按需加载的目录包。`SKILL.md` 是必需入口文件：
+Skill 兼容 [Agent Skills](https://agentskills.io/) 标准，按需加载。
+`SKILL.md` 是必需入口文件，必须包含 YAML frontmatter，至少有 `name` 和
+`description`，并且 `name` 必须和父目录名一致。
 
 ```text
-skills/my-skill/
+.easyagent/skills/my-skill/
 ├── SKILL.md
 ├── references/
 ├── templates/
@@ -232,9 +249,12 @@ from easyagent import LiteLLMModel, SkillAgent
 agent = SkillAgent(
     model=LiteLLMModel("gpt-4o-mini"),
     skills=["my-skill"],
-    skill_root="./skills",
 )
 ```
+
+默认从 `.easyagent/skills` 发现技能。可以设置 `EA_SKILLS_DIR` 加载其他
+Agent Skills 兼容目录，例如 `.claude/skills` 或 `.codex/skills`。多个目录
+使用系统路径分隔符连接（macOS/Linux 为 `:`，Windows 为 `;`）。
 
 ## 多 agent
 
@@ -290,7 +310,7 @@ easyagent/
 ├── prompt/     # System prompt 构造
 ├── sandbox/    # Local / Docker 沙箱
 ├── skill/      # SKILL.md 加载
-├── tool/       # 工具注册与内置工具（bash / file / web / end）
+├── tool/       # 工具注册与内置工具（bash / file / web / skill helpers）
 ├── config/     # 配置加载
 └── debug/      # 日志
 ```

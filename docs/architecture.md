@@ -57,7 +57,7 @@ SDK 提供四个具体 agent 类，通过继承叠加能力：
 | 类 | 行为 |
 |---|---|
 | `Agent` | 单轮模型调用。一次 `run()` = 一次 LLM 调用。 |
-| `ReactAgent(Agent)` | ReAct 循环：模型调用 → 工具调用 → 模型调用 → ... 直到调用 `end` 工具或达到 `max_iterations`。 |
+| `ReactAgent(Agent)` | ReAct 循环：模型调用 → 工具调用 → 模型调用 → ... 直到模型返回无工具调用的最终文本，或达到 `max_iterations`。 |
 | `SkillAgent(ReactAgent)` | 在 ReactAgent 基础上，注入 `load_skill` / `list_skill_files` / `read_skill_file` / `run_skill_script` 四个工具，模型可以按需加载 SKILL.md 包并激活其工具。 |
 | `SandboxAgent(ReactAgent)` | 在 ReactAgent 基础上，自动注册 `bash` / `write_file` / `read_file` 三个工具，并通过 `on_session_start` / `on_session_end` 管理沙箱生命周期。 |
 
