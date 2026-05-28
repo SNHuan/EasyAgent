@@ -1,0 +1,962 @@
+{
+  "generated_at": "2026-05-28T16:08:56.122310",
+  "source": "EasyAgent ReactAgent + LiteLLMModel + TraceRecorder + SQLiteStore",
+  "sessions": [
+    {
+      "session_id": "855061d887cf48389bb3c6d1a229c8d5",
+      "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+      "status": "completed",
+      "started_at": "2026-05-28T16:08:53.665935",
+      "ended_at": "2026-05-28T16:08:56.117824",
+      "event_count": 8,
+      "token_usage": {
+        "prompt_tokens": 655,
+        "completion_tokens": 35,
+        "total_tokens": 690
+      },
+      "metadata": {},
+      "event_counts": {
+        "AgentStartedEvent": 1,
+        "LLMCalledEvent": 2,
+        "LLMRespondedEvent": 2,
+        "ToolCalledEvent": 1,
+        "ToolResultEvent": 1,
+        "AgentFinishedEvent": 1
+      },
+      "events": [
+        {
+          "event_id": "d99d46e3-70bc-4c44-8162-32fe1c4ab3fb",
+          "session_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "event_type": "AgentStartedEvent",
+          "timestamp": "2026-05-28T16:08:53.665935",
+          "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "payload": {
+            "agent_id": "855061d887cf48389bb3c6d1a229c8d5"
+          }
+        },
+        {
+          "event_id": "419a66f9-2694-4500-ae4a-c4e73f2e25f1",
+          "session_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "event_type": "LLMCalledEvent",
+          "timestamp": "2026-05-28T16:08:53.670797",
+          "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "payload": {
+            "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+            "model": "openai/gemini-3-flash-preview",
+            "message_count": 2,
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an AI assistant that can reason step by step and use tools when needed.\n\n## Tool Use Rules\n\n- If a tool is needed, call it natively through the API tool calling mechanism.\n- Do not describe tool calls in normal text.\n- Do not output JSON, XML, code blocks, or pseudo-calls to represent a tool call.\n- A tool is considered used only if it appears as an actual tool call in the model response.\n- Never claim that an action, handoff, search, read, or write has happened unless the corresponding tool was actually called successfully.\n- If the available tools are insufficient, say so plainly instead of pretending to use one.\n\n## Reasoning Rules\n\n- Think before deciding whether to call a tool.\n- Use tools to get external information or take actions.\n- Do not make up facts that should be verified with tools.\n\n\n## Completion Rules\n\n- Finish a task by writing the final answer directly in assistant message content.\n- If you genuinely cannot complete the task, explain why plainly.\n\n\n## Output Style\n\n- Keep intermediate text concise and useful.\n- Do not emit a fixed \"Thought / Action / Observation\" template unless explicitly requested.\n- When not using a tool, continue reasoning normally in plain text.\n"
+              },
+              {
+                "role": "user",
+                "content": "Call get_repository_details for EasyAgent, then produce a short status line that could appear in an observability dashboard."
+              }
+            ]
+          }
+        },
+        {
+          "event_id": "29e34f2b-4733-46eb-9239-4e47f6b50fb3",
+          "session_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "event_type": "LLMRespondedEvent",
+          "timestamp": "2026-05-28T16:08:54.838369",
+          "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "payload": {
+            "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+            "model": "openai/gemini-3-flash-preview",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "call_ff039b47f18d4946a7efe8e42972b2d5",
+                "type": "function",
+                "name": "get_repository_details",
+                "arguments": {
+                  "repo": "EasyAgent"
+                }
+              }
+            ],
+            "usage": {
+              "completion_tokens": 19,
+              "prompt_tokens": 311,
+              "total_tokens": 330,
+              "completion_tokens_details": {
+                "accepted_prediction_tokens": null,
+                "audio_tokens": 0,
+                "reasoning_tokens": 0,
+                "rejected_prediction_tokens": null,
+                "text_tokens": 19,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "prompt_tokens_details": {
+                "audio_tokens": 0,
+                "cached_tokens": 0,
+                "text_tokens": 311,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "input_tokens_details": null,
+              "claude_cache_creation_5_m_tokens": 0,
+              "claude_cache_creation_1_h_tokens": 0,
+              "cost": 0.0002125
+            }
+          }
+        },
+        {
+          "event_id": "c7fb7178-60a6-41da-96e2-50c17e50e6ba",
+          "session_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "event_type": "ToolCalledEvent",
+          "timestamp": "2026-05-28T16:08:54.842138",
+          "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "payload": {
+            "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+            "tool_name": "get_repository_details",
+            "arguments": {
+              "repo": "EasyAgent"
+            }
+          }
+        },
+        {
+          "event_id": "738451e1-0c09-4ce6-a22a-3b632cb67902",
+          "session_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "event_type": "ToolResultEvent",
+          "timestamp": "2026-05-28T16:08:54.844328",
+          "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "payload": {
+            "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+            "tool_name": "get_repository_details",
+            "result": "EasyAgent: tracing hooks, token usage, SQLite persistence"
+          }
+        },
+        {
+          "event_id": "4780ac18-f93a-4e80-9535-c753e27e6d75",
+          "session_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "event_type": "LLMCalledEvent",
+          "timestamp": "2026-05-28T16:08:54.846993",
+          "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "payload": {
+            "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+            "model": "openai/gemini-3-flash-preview",
+            "message_count": 4,
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an AI assistant that can reason step by step and use tools when needed.\n\n## Tool Use Rules\n\n- If a tool is needed, call it natively through the API tool calling mechanism.\n- Do not describe tool calls in normal text.\n- Do not output JSON, XML, code blocks, or pseudo-calls to represent a tool call.\n- A tool is considered used only if it appears as an actual tool call in the model response.\n- Never claim that an action, handoff, search, read, or write has happened unless the corresponding tool was actually called successfully.\n- If the available tools are insufficient, say so plainly instead of pretending to use one.\n\n## Reasoning Rules\n\n- Think before deciding whether to call a tool.\n- Use tools to get external information or take actions.\n- Do not make up facts that should be verified with tools.\n\n\n## Completion Rules\n\n- Finish a task by writing the final answer directly in assistant message content.\n- If you genuinely cannot complete the task, explain why plainly.\n\n\n## Output Style\n\n- Keep intermediate text concise and useful.\n- Do not emit a fixed \"Thought / Action / Observation\" template unless explicitly requested.\n- When not using a tool, continue reasoning normally in plain text.\n"
+              },
+              {
+                "role": "user",
+                "content": "Call get_repository_details for EasyAgent, then produce a short status line that could appear in an observability dashboard."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "id": "call_ff039b47f18d4946a7efe8e42972b2d5",
+                    "type": "function",
+                    "function": {
+                      "name": "get_repository_details",
+                      "arguments": "{\"repo\": \"EasyAgent\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "content": "EasyAgent: tracing hooks, token usage, SQLite persistence",
+                "tool_call_id": "call_ff039b47f18d4946a7efe8e42972b2d5"
+              }
+            ]
+          }
+        },
+        {
+          "event_id": "f9ca1260-3c3e-4d0f-a21b-322c22124542",
+          "session_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "event_type": "LLMRespondedEvent",
+          "timestamp": "2026-05-28T16:08:56.114150",
+          "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "payload": {
+            "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+            "model": "openai/gemini-3-flash-preview",
+            "content": "EasyAgent: tracing hooks, token usage, SQLite persistence (Status: Healthy)",
+            "tool_calls": [],
+            "usage": {
+              "completion_tokens": 16,
+              "prompt_tokens": 344,
+              "total_tokens": 360,
+              "completion_tokens_details": {
+                "accepted_prediction_tokens": null,
+                "audio_tokens": 0,
+                "reasoning_tokens": 0,
+                "rejected_prediction_tokens": null,
+                "text_tokens": 16,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "prompt_tokens_details": {
+                "audio_tokens": 0,
+                "cached_tokens": 0,
+                "text_tokens": 344,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "input_tokens_details": null,
+              "claude_cache_creation_5_m_tokens": 0,
+              "claude_cache_creation_1_h_tokens": 0,
+              "cost": 0.00021999999999999998
+            }
+          }
+        },
+        {
+          "event_id": "6e1d19c5-6417-4d9b-b4f9-2ec0339498a4",
+          "session_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "event_type": "AgentFinishedEvent",
+          "timestamp": "2026-05-28T16:08:56.117824",
+          "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+          "payload": {
+            "agent_id": "855061d887cf48389bb3c6d1a229c8d5",
+            "output": "EasyAgent: tracing hooks, token usage, SQLite persistence (Status: Healthy)",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Call get_repository_details for EasyAgent, then produce a short status line that could appear in an observability dashboard."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "id": "call_ff039b47f18d4946a7efe8e42972b2d5",
+                    "type": "function",
+                    "function": {
+                      "name": "get_repository_details",
+                      "arguments": "{\"repo\": \"EasyAgent\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "content": "EasyAgent: tracing hooks, token usage, SQLite persistence",
+                "tool_call_id": "call_ff039b47f18d4946a7efe8e42972b2d5"
+              },
+              {
+                "role": "assistant",
+                "content": "EasyAgent: tracing hooks, token usage, SQLite persistence (Status: Healthy)"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "session_id": "661e661e789c40b498fe4f40dc1b5f23",
+      "agent_id": "661e661e789c40b498fe4f40dc1b5f23",
+      "status": "completed",
+      "started_at": "2026-05-28T16:08:49.053262",
+      "ended_at": "2026-05-28T16:08:53.661493",
+      "event_count": 4,
+      "token_usage": {
+        "prompt_tokens": 287,
+        "completion_tokens": 326,
+        "total_tokens": 613
+      },
+      "metadata": {},
+      "event_counts": {
+        "AgentStartedEvent": 1,
+        "LLMCalledEvent": 1,
+        "LLMRespondedEvent": 1,
+        "AgentFinishedEvent": 1
+      },
+      "events": [
+        {
+          "event_id": "42f2fb56-3abc-4a8f-8e03-5eecf30d1705",
+          "session_id": "661e661e789c40b498fe4f40dc1b5f23",
+          "event_type": "AgentStartedEvent",
+          "timestamp": "2026-05-28T16:08:49.053262",
+          "agent_id": "661e661e789c40b498fe4f40dc1b5f23",
+          "payload": {
+            "agent_id": "661e661e789c40b498fe4f40dc1b5f23"
+          }
+        },
+        {
+          "event_id": "c82d6108-98c1-4720-b029-376f93a11ecc",
+          "session_id": "661e661e789c40b498fe4f40dc1b5f23",
+          "event_type": "LLMCalledEvent",
+          "timestamp": "2026-05-28T16:08:49.057584",
+          "agent_id": "661e661e789c40b498fe4f40dc1b5f23",
+          "payload": {
+            "agent_id": "661e661e789c40b498fe4f40dc1b5f23",
+            "model": "openai/gemini-3-flash-preview",
+            "message_count": 2,
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an AI assistant that can reason step by step and use tools when needed.\n\n## Tool Use Rules\n\n- If a tool is needed, call it natively through the API tool calling mechanism.\n- Do not describe tool calls in normal text.\n- Do not output JSON, XML, code blocks, or pseudo-calls to represent a tool call.\n- A tool is considered used only if it appears as an actual tool call in the model response.\n- Never claim that an action, handoff, search, read, or write has happened unless the corresponding tool was actually called successfully.\n- If the available tools are insufficient, say so plainly instead of pretending to use one.\n\n## Reasoning Rules\n\n- Think before deciding whether to call a tool.\n- Use tools to get external information or take actions.\n- Do not make up facts that should be verified with tools.\n\n\n## Completion Rules\n\n- Finish a task by writing the final answer directly in assistant message content.\n- If you genuinely cannot complete the task, explain why plainly.\n\n\n## Output Style\n\n- Keep intermediate text concise and useful.\n- Do not emit a fixed \"Thought / Action / Observation\" template unless explicitly requested.\n- When not using a tool, continue reasoning normally in plain text.\n"
+              },
+              {
+                "role": "user",
+                "content": "You are reviewing an SDK dashboard. Compare sessions, events, and token usage as observability concepts in one short paragraph."
+              }
+            ]
+          }
+        },
+        {
+          "event_id": "3c3705fb-5e21-4cb1-81d3-28c8c9e2ead5",
+          "session_id": "661e661e789c40b498fe4f40dc1b5f23",
+          "event_type": "LLMRespondedEvent",
+          "timestamp": "2026-05-28T16:08:53.656849",
+          "agent_id": "661e661e789c40b498fe4f40dc1b5f23",
+          "payload": {
+            "agent_id": "661e661e789c40b498fe4f40dc1b5f23",
+            "model": "openai/gemini-3-flash-preview",
+            "content": "In an SDK dashboard, sessions, events, and token usage provide distinct layers of observability: **sessions** represent the macro-level duration and frequency of user interactions, **events** capture granular actions or system triggers that occur within those sessions, and **token usage** measures the specific resource consumption and operational cost of the data processed. While sessions and events focus on user behavior and system performance, token usage tracks the efficiency and volume of AI-driven workloads, collectively offering a complete view of engagement, functionality, and cost-effectiveness.",
+            "tool_calls": [],
+            "usage": {
+              "completion_tokens": 326,
+              "prompt_tokens": 287,
+              "total_tokens": 613,
+              "completion_tokens_details": {
+                "accepted_prediction_tokens": null,
+                "audio_tokens": 0,
+                "reasoning_tokens": 220,
+                "rejected_prediction_tokens": null,
+                "text_tokens": 106,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "prompt_tokens_details": {
+                "audio_tokens": 0,
+                "cached_tokens": 0,
+                "text_tokens": 287,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "input_tokens_details": null,
+              "claude_cache_creation_5_m_tokens": 0,
+              "claude_cache_creation_1_h_tokens": 0,
+              "cost": 0.0011215
+            }
+          }
+        },
+        {
+          "event_id": "7754b245-d7be-4a87-9aa5-3ac23c5a3028",
+          "session_id": "661e661e789c40b498fe4f40dc1b5f23",
+          "event_type": "AgentFinishedEvent",
+          "timestamp": "2026-05-28T16:08:53.661493",
+          "agent_id": "661e661e789c40b498fe4f40dc1b5f23",
+          "payload": {
+            "agent_id": "661e661e789c40b498fe4f40dc1b5f23",
+            "output": "In an SDK dashboard, sessions, events, and token usage provide distinct layers of observability: **sessions** represent the macro-level duration and frequency of user interactions, **events** capture granular actions or system triggers that occur within those sessions, and **token usage** measures the specific resource consumption and operational cost of the data processed. While sessions and events focus on user behavior and system performance, token usage tracks the efficiency and volume of AI-driven workloads, collectively offering a complete view of engagement, functionality, and cost-effectiveness.",
+            "messages": [
+              {
+                "role": "user",
+                "content": "You are reviewing an SDK dashboard. Compare sessions, events, and token usage as observability concepts in one short paragraph."
+              },
+              {
+                "role": "assistant",
+                "content": "In an SDK dashboard, sessions, events, and token usage provide distinct layers of observability: **sessions** represent the macro-level duration and frequency of user interactions, **events** capture granular actions or system triggers that occur within those sessions, and **token usage** measures the specific resource consumption and operational cost of the data processed. While sessions and events focus on user behavior and system performance, token usage tracks the efficiency and volume of AI-driven workloads, collectively offering a complete view of engagement, functionality, and cost-effectiveness."
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "session_id": "13d694c952674ce085197859675bed38",
+      "agent_id": "13d694c952674ce085197859675bed38",
+      "status": "completed",
+      "started_at": "2026-05-28T16:08:43.613836",
+      "ended_at": "2026-05-28T16:08:49.048523",
+      "event_count": 4,
+      "token_usage": {
+        "prompt_tokens": 280,
+        "completion_tokens": 565,
+        "total_tokens": 845
+      },
+      "metadata": {},
+      "event_counts": {
+        "AgentStartedEvent": 1,
+        "LLMCalledEvent": 1,
+        "LLMRespondedEvent": 1,
+        "AgentFinishedEvent": 1
+      },
+      "events": [
+        {
+          "event_id": "cf34cc58-2296-42dc-ac93-d27f079c365f",
+          "session_id": "13d694c952674ce085197859675bed38",
+          "event_type": "AgentStartedEvent",
+          "timestamp": "2026-05-28T16:08:43.613836",
+          "agent_id": "13d694c952674ce085197859675bed38",
+          "payload": {
+            "agent_id": "13d694c952674ce085197859675bed38"
+          }
+        },
+        {
+          "event_id": "823341a8-9c72-4651-b239-9f2039ae7874",
+          "session_id": "13d694c952674ce085197859675bed38",
+          "event_type": "LLMCalledEvent",
+          "timestamp": "2026-05-28T16:08:43.617858",
+          "agent_id": "13d694c952674ce085197859675bed38",
+          "payload": {
+            "agent_id": "13d694c952674ce085197859675bed38",
+            "model": "openai/gemini-3-flash-preview",
+            "message_count": 2,
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an AI assistant that can reason step by step and use tools when needed.\n\n## Tool Use Rules\n\n- If a tool is needed, call it natively through the API tool calling mechanism.\n- Do not describe tool calls in normal text.\n- Do not output JSON, XML, code blocks, or pseudo-calls to represent a tool call.\n- A tool is considered used only if it appears as an actual tool call in the model response.\n- Never claim that an action, handoff, search, read, or write has happened unless the corresponding tool was actually called successfully.\n- If the available tools are insufficient, say so plainly instead of pretending to use one.\n\n## Reasoning Rules\n\n- Think before deciding whether to call a tool.\n- Use tools to get external information or take actions.\n- Do not make up facts that should be verified with tools.\n\n\n## Completion Rules\n\n- Finish a task by writing the final answer directly in assistant message content.\n- If you genuinely cannot complete the task, explain why plainly.\n\n\n## Output Style\n\n- Keep intermediate text concise and useful.\n- Do not emit a fixed \"Thought / Action / Observation\" template unless explicitly requested.\n- When not using a tool, continue reasoning normally in plain text.\n"
+              },
+              {
+                "role": "user",
+                "content": "Explain EasyAgent's tracing store for a dashboard UI in three bullet points."
+              }
+            ]
+          }
+        },
+        {
+          "event_id": "a308df7d-2525-42a3-b156-22cbe2bd7ec5",
+          "session_id": "13d694c952674ce085197859675bed38",
+          "event_type": "LLMRespondedEvent",
+          "timestamp": "2026-05-28T16:08:49.044957",
+          "agent_id": "13d694c952674ce085197859675bed38",
+          "payload": {
+            "agent_id": "13d694c952674ce085197859675bed38",
+            "model": "openai/gemini-3-flash-preview",
+            "content": "EasyAgent’s tracing store serves as the backend foundation for the dashboard UI by managing the following:\n\n*   **Centralized Execution Logs:** It captures and stores every step of an agent's lifecycle—including LLM prompts, tool invocations, and metadata—allowing the UI to retrieve and display both real-time and historical session data.\n*   **Hierarchical Span Mapping:** It organizes complex, nested agent activities into parent-child relationships (traces), which the dashboard uses to render visual execution trees and timelines of the agent’s decision-making process.\n*   **State & Performance Observability:** It records input/output snapshots and latency metrics for each step, enabling the UI to provide \"time-travel\" debugging and performance bottlenecks analysis for individual agent runs.",
+            "tool_calls": [],
+            "usage": {
+              "completion_tokens": 565,
+              "prompt_tokens": 280,
+              "total_tokens": 845,
+              "completion_tokens_details": {
+                "accepted_prediction_tokens": null,
+                "audio_tokens": 0,
+                "reasoning_tokens": 407,
+                "rejected_prediction_tokens": null,
+                "text_tokens": 158,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "prompt_tokens_details": {
+                "audio_tokens": 0,
+                "cached_tokens": 0,
+                "text_tokens": 280,
+                "image_tokens": 0,
+                "video_tokens": null
+              }
+            }
+          }
+        },
+        {
+          "event_id": "30f06ec1-576b-4651-8e83-4d6a7a503ef4",
+          "session_id": "13d694c952674ce085197859675bed38",
+          "event_type": "AgentFinishedEvent",
+          "timestamp": "2026-05-28T16:08:49.048523",
+          "agent_id": "13d694c952674ce085197859675bed38",
+          "payload": {
+            "agent_id": "13d694c952674ce085197859675bed38",
+            "output": "EasyAgent’s tracing store serves as the backend foundation for the dashboard UI by managing the following:\n\n*   **Centralized Execution Logs:** It captures and stores every step of an agent's lifecycle—including LLM prompts, tool invocations, and metadata—allowing the UI to retrieve and display both real-time and historical session data.\n*   **Hierarchical Span Mapping:** It organizes complex, nested agent activities into parent-child relationships (traces), which the dashboard uses to render visual execution trees and timelines of the agent’s decision-making process.\n*   **State & Performance Observability:** It records input/output snapshots and latency metrics for each step, enabling the UI to provide \"time-travel\" debugging and performance bottlenecks analysis for individual agent runs.",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Explain EasyAgent's tracing store for a dashboard UI in three bullet points."
+              },
+              {
+                "role": "assistant",
+                "content": "EasyAgent’s tracing store serves as the backend foundation for the dashboard UI by managing the following:\n\n*   **Centralized Execution Logs:** It captures and stores every step of an agent's lifecycle—including LLM prompts, tool invocations, and metadata—allowing the UI to retrieve and display both real-time and historical session data.\n*   **Hierarchical Span Mapping:** It organizes complex, nested agent activities into parent-child relationships (traces), which the dashboard uses to render visual execution trees and timelines of the agent’s decision-making process.\n*   **State & Performance Observability:** It records input/output snapshots and latency metrics for each step, enabling the UI to provide \"time-travel\" debugging and performance bottlenecks analysis for individual agent runs."
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+      "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+      "status": "completed",
+      "started_at": "2026-05-28T16:07:53.351462",
+      "ended_at": "2026-05-28T16:08:43.608017",
+      "event_count": 12,
+      "token_usage": {
+        "prompt_tokens": 1186,
+        "completion_tokens": 220,
+        "total_tokens": 1406
+      },
+      "metadata": {},
+      "event_counts": {
+        "AgentStartedEvent": 1,
+        "LLMCalledEvent": 3,
+        "LLMRespondedEvent": 3,
+        "ToolCalledEvent": 2,
+        "ToolResultEvent": 2,
+        "AgentFinishedEvent": 1
+      },
+      "events": [
+        {
+          "event_id": "25b5678b-4560-4e6b-96bf-a5e8e281e482",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "AgentStartedEvent",
+          "timestamp": "2026-05-28T16:07:53.351462",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8"
+          }
+        },
+        {
+          "event_id": "f60aeae2-b1bb-4f0d-9422-2ead3f244736",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "LLMCalledEvent",
+          "timestamp": "2026-05-28T16:07:53.353065",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+            "model": "openai/gemini-3-flash-preview",
+            "message_count": 2,
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an AI assistant that can reason step by step and use tools when needed.\n\n## Tool Use Rules\n\n- If a tool is needed, call it natively through the API tool calling mechanism.\n- Do not describe tool calls in normal text.\n- Do not output JSON, XML, code blocks, or pseudo-calls to represent a tool call.\n- A tool is considered used only if it appears as an actual tool call in the model response.\n- Never claim that an action, handoff, search, read, or write has happened unless the corresponding tool was actually called successfully.\n- If the available tools are insufficient, say so plainly instead of pretending to use one.\n\n## Reasoning Rules\n\n- Think before deciding whether to call a tool.\n- Use tools to get external information or take actions.\n- Do not make up facts that should be verified with tools.\n\n\n## Completion Rules\n\n- Finish a task by writing the final answer directly in assistant message content.\n- If you genuinely cannot complete the task, explain why plainly.\n\n\n## Output Style\n\n- Keep intermediate text concise and useful.\n- Do not emit a fixed \"Thought / Action / Observation\" template unless explicitly requested.\n- When not using a tool, continue reasoning normally in plain text.\n"
+              },
+              {
+                "role": "user",
+                "content": "Use the available tools to inspect EasyAgent. First call search_github_repositories with query 'AI agent SDK observability', then call get_repository_details for EasyAgent, then summarize the result in two concise sentences."
+              }
+            ]
+          }
+        },
+        {
+          "event_id": "f55d3146-22b3-4258-97c3-7b4bfd076ce4",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "LLMRespondedEvent",
+          "timestamp": "2026-05-28T16:08:38.943821",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+            "model": "openai/gemini-3-flash-preview",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "call_1b9005be300945b3ade97079b3a6fdb1",
+                "type": "function",
+                "name": "search_github_repositories",
+                "arguments": {
+                  "query": "AI agent SDK observability"
+                }
+              }
+            ],
+            "usage": {
+              "completion_tokens": 103,
+              "prompt_tokens": 357,
+              "total_tokens": 460,
+              "completion_tokens_details": {
+                "accepted_prediction_tokens": null,
+                "audio_tokens": 0,
+                "reasoning_tokens": 82,
+                "rejected_prediction_tokens": null,
+                "text_tokens": 21,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "prompt_tokens_details": {
+                "audio_tokens": 0,
+                "cached_tokens": 0,
+                "text_tokens": 357,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "input_tokens_details": null,
+              "claude_cache_creation_5_m_tokens": 0,
+              "claude_cache_creation_1_h_tokens": 0,
+              "cost": 0.00048750000000000003
+            }
+          }
+        },
+        {
+          "event_id": "1c9708c3-a82f-4149-a5d8-c06c46b844e5",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "ToolCalledEvent",
+          "timestamp": "2026-05-28T16:08:38.947511",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+            "tool_name": "search_github_repositories",
+            "arguments": {
+              "query": "AI agent SDK observability"
+            }
+          }
+        },
+        {
+          "event_id": "85cf45fd-1551-45d5-a9f8-45a41a2ab501",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "ToolResultEvent",
+          "timestamp": "2026-05-28T16:08:38.948575",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+            "tool_name": "search_github_repositories",
+            "result": "top repositories for AI agent SDK observability: EasyAgent, LiteLLM, OpenTelemetry"
+          }
+        },
+        {
+          "event_id": "a26ecc0c-d066-4715-84a3-01337c2121a3",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "LLMCalledEvent",
+          "timestamp": "2026-05-28T16:08:38.949473",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+            "model": "openai/gemini-3-flash-preview",
+            "message_count": 4,
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an AI assistant that can reason step by step and use tools when needed.\n\n## Tool Use Rules\n\n- If a tool is needed, call it natively through the API tool calling mechanism.\n- Do not describe tool calls in normal text.\n- Do not output JSON, XML, code blocks, or pseudo-calls to represent a tool call.\n- A tool is considered used only if it appears as an actual tool call in the model response.\n- Never claim that an action, handoff, search, read, or write has happened unless the corresponding tool was actually called successfully.\n- If the available tools are insufficient, say so plainly instead of pretending to use one.\n\n## Reasoning Rules\n\n- Think before deciding whether to call a tool.\n- Use tools to get external information or take actions.\n- Do not make up facts that should be verified with tools.\n\n\n## Completion Rules\n\n- Finish a task by writing the final answer directly in assistant message content.\n- If you genuinely cannot complete the task, explain why plainly.\n\n\n## Output Style\n\n- Keep intermediate text concise and useful.\n- Do not emit a fixed \"Thought / Action / Observation\" template unless explicitly requested.\n- When not using a tool, continue reasoning normally in plain text.\n"
+              },
+              {
+                "role": "user",
+                "content": "Use the available tools to inspect EasyAgent. First call search_github_repositories with query 'AI agent SDK observability', then call get_repository_details for EasyAgent, then summarize the result in two concise sentences."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "id": "call_1b9005be300945b3ade97079b3a6fdb1",
+                    "type": "function",
+                    "function": {
+                      "name": "search_github_repositories",
+                      "arguments": "{\"query\": \"AI agent SDK observability\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "content": "top repositories for AI agent SDK observability: EasyAgent, LiteLLM, OpenTelemetry",
+                "tool_call_id": "call_1b9005be300945b3ade97079b3a6fdb1"
+              }
+            ]
+          }
+        },
+        {
+          "event_id": "155d3df0-c870-4dde-a807-664b3e1141fd",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "LLMRespondedEvent",
+          "timestamp": "2026-05-28T16:08:42.243318",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+            "model": "openai/gemini-3-flash-preview",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "call_94bc2720fb914860950223c093a84896",
+                "type": "function",
+                "name": "get_repository_details",
+                "arguments": {
+                  "repo": "EasyAgent"
+                }
+              }
+            ],
+            "usage": {
+              "completion_tokens": 81,
+              "prompt_tokens": 398,
+              "total_tokens": 479,
+              "completion_tokens_details": {
+                "accepted_prediction_tokens": null,
+                "audio_tokens": 0,
+                "reasoning_tokens": 62,
+                "rejected_prediction_tokens": null,
+                "text_tokens": 19,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "prompt_tokens_details": {
+                "audio_tokens": 0,
+                "cached_tokens": 0,
+                "text_tokens": 398,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "input_tokens_details": null,
+              "claude_cache_creation_5_m_tokens": 0,
+              "claude_cache_creation_1_h_tokens": 0,
+              "cost": 0.000442
+            }
+          }
+        },
+        {
+          "event_id": "348bef53-c32e-479a-99b5-f30f063cb8ca",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "ToolCalledEvent",
+          "timestamp": "2026-05-28T16:08:42.247083",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+            "tool_name": "get_repository_details",
+            "arguments": {
+              "repo": "EasyAgent"
+            }
+          }
+        },
+        {
+          "event_id": "58c1d9d6-4c82-4b35-bc0d-5fd0e4d7797a",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "ToolResultEvent",
+          "timestamp": "2026-05-28T16:08:42.249361",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+            "tool_name": "get_repository_details",
+            "result": "EasyAgent: tracing hooks, token usage, SQLite persistence"
+          }
+        },
+        {
+          "event_id": "6d4c358b-c4c0-4167-b76b-0aef55e3d42c",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "LLMCalledEvent",
+          "timestamp": "2026-05-28T16:08:42.251837",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+            "model": "openai/gemini-3-flash-preview",
+            "message_count": 6,
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are an AI assistant that can reason step by step and use tools when needed.\n\n## Tool Use Rules\n\n- If a tool is needed, call it natively through the API tool calling mechanism.\n- Do not describe tool calls in normal text.\n- Do not output JSON, XML, code blocks, or pseudo-calls to represent a tool call.\n- A tool is considered used only if it appears as an actual tool call in the model response.\n- Never claim that an action, handoff, search, read, or write has happened unless the corresponding tool was actually called successfully.\n- If the available tools are insufficient, say so plainly instead of pretending to use one.\n\n## Reasoning Rules\n\n- Think before deciding whether to call a tool.\n- Use tools to get external information or take actions.\n- Do not make up facts that should be verified with tools.\n\n\n## Completion Rules\n\n- Finish a task by writing the final answer directly in assistant message content.\n- If you genuinely cannot complete the task, explain why plainly.\n\n\n## Output Style\n\n- Keep intermediate text concise and useful.\n- Do not emit a fixed \"Thought / Action / Observation\" template unless explicitly requested.\n- When not using a tool, continue reasoning normally in plain text.\n"
+              },
+              {
+                "role": "user",
+                "content": "Use the available tools to inspect EasyAgent. First call search_github_repositories with query 'AI agent SDK observability', then call get_repository_details for EasyAgent, then summarize the result in two concise sentences."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "id": "call_1b9005be300945b3ade97079b3a6fdb1",
+                    "type": "function",
+                    "function": {
+                      "name": "search_github_repositories",
+                      "arguments": "{\"query\": \"AI agent SDK observability\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "content": "top repositories for AI agent SDK observability: EasyAgent, LiteLLM, OpenTelemetry",
+                "tool_call_id": "call_1b9005be300945b3ade97079b3a6fdb1"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "id": "call_94bc2720fb914860950223c093a84896",
+                    "type": "function",
+                    "function": {
+                      "name": "get_repository_details",
+                      "arguments": "{\"repo\": \"EasyAgent\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "content": "EasyAgent: tracing hooks, token usage, SQLite persistence",
+                "tool_call_id": "call_94bc2720fb914860950223c093a84896"
+              }
+            ]
+          }
+        },
+        {
+          "event_id": "b6a00844-8caf-4757-beb0-c7de0ac75eac",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "LLMRespondedEvent",
+          "timestamp": "2026-05-28T16:08:43.604319",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+            "model": "openai/gemini-3-flash-preview",
+            "content": "EasyAgent is an AI agent SDK that provides observability features such as tracing hooks and token usage monitoring. It also includes built-in SQLite persistence to manage and store agent data effectively.",
+            "tool_calls": [],
+            "usage": {
+              "completion_tokens": 36,
+              "prompt_tokens": 431,
+              "total_tokens": 467,
+              "completion_tokens_details": {
+                "accepted_prediction_tokens": null,
+                "audio_tokens": 0,
+                "reasoning_tokens": 0,
+                "rejected_prediction_tokens": null,
+                "text_tokens": 36,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "prompt_tokens_details": {
+                "audio_tokens": 0,
+                "cached_tokens": 0,
+                "text_tokens": 431,
+                "image_tokens": 0,
+                "video_tokens": null
+              },
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "input_tokens_details": null,
+              "claude_cache_creation_5_m_tokens": 0,
+              "claude_cache_creation_1_h_tokens": 0,
+              "cost": 0.0003235
+            }
+          }
+        },
+        {
+          "event_id": "fb3fc4ff-546b-44d1-aa76-4745a12dd09b",
+          "session_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "event_type": "AgentFinishedEvent",
+          "timestamp": "2026-05-28T16:08:43.608017",
+          "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+          "payload": {
+            "agent_id": "cd1a24bd27b64d9798e9841166c8a9b8",
+            "output": "EasyAgent is an AI agent SDK that provides observability features such as tracing hooks and token usage monitoring. It also includes built-in SQLite persistence to manage and store agent data effectively.",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Use the available tools to inspect EasyAgent. First call search_github_repositories with query 'AI agent SDK observability', then call get_repository_details for EasyAgent, then summarize the result in two concise sentences."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "id": "call_1b9005be300945b3ade97079b3a6fdb1",
+                    "type": "function",
+                    "function": {
+                      "name": "search_github_repositories",
+                      "arguments": "{\"query\": \"AI agent SDK observability\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "content": "top repositories for AI agent SDK observability: EasyAgent, LiteLLM, OpenTelemetry",
+                "tool_call_id": "call_1b9005be300945b3ade97079b3a6fdb1"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "id": "call_94bc2720fb914860950223c093a84896",
+                    "type": "function",
+                    "function": {
+                      "name": "get_repository_details",
+                      "arguments": "{\"repo\": \"EasyAgent\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "content": "EasyAgent: tracing hooks, token usage, SQLite persistence",
+                "tool_call_id": "call_94bc2720fb914860950223c093a84896"
+              },
+              {
+                "role": "assistant",
+                "content": "EasyAgent is an AI agent SDK that provides observability features such as tracing hooks and token usage monitoring. It also includes built-in SQLite persistence to manage and store agent data effectively."
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "hourly_token_usage": [
+    {
+      "hour": "2026-05-28T05:00:00",
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "hour": "2026-05-28T06:00:00",
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "hour": "2026-05-28T07:00:00",
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "hour": "2026-05-28T08:00:00",
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "hour": "2026-05-28T09:00:00",
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "hour": "2026-05-28T10:00:00",
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "hour": "2026-05-28T11:00:00",
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "hour": "2026-05-28T12:00:00",
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "hour": "2026-05-28T13:00:00",
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "hour": "2026-05-28T14:00:00",
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "hour": "2026-05-28T15:00:00",
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "hour": "2026-05-28T16:00:00",
+      "prompt_tokens": 2408,
+      "completion_tokens": 1146,
+      "total_tokens": 3554
+    }
+  ]
+}

@@ -3,8 +3,9 @@ include README.md
 include README_CN.md
 include CHANGELOG.md
 include requirements.txt
-recursive-include easyagent *.yaml
+include easyagent/config/config_example.yaml
 recursive-include easyagent *.md
 recursive-include easyagent py.typed
+recursive-include easyagent/dashboard/static *
 recursive-include docs *.md
 recursive-include examples *.py

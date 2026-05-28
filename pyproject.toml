@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "easy-agent-sdk"
-version = "0.5.1"
+version = "0.6.0"
 description = "A lightweight agent SDK built on LiteLLM, with single-agent (ReactAgent / SkillAgent / SandboxAgent) and Entity-World-Schedule multi-agent orchestration."
 readme = "README.md"
 license = {text = "MIT"}
@@ -44,6 +44,9 @@ dev = [
     "twine",
 ]
 
+[project.scripts]
+easyagent = "easyagent.cli:main"
+
 [project.urls]
 "Homepage" = "https://github.com/SNHuan/EasyAgent"
 "Documentation" = "https://github.com/SNHuan/EasyAgent#readme"
@@ -59,9 +62,9 @@ include = ["easyagent", "easyagent.*"]
 exclude = ["tests*", "test*", "easyagent.test", "easyagent.test.*"]
 
 [tool.setuptools.package-data]
-easyagent = ["*.yaml", "py.typed", "skill/examples/**/*.md"]
+easyagent = ["py.typed", "config/config_example.yaml", "skill/examples/**/*.md", "dashboard/static/**/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["easyagent/test"]
+testpaths = ["tests"]
