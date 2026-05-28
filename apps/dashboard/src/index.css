@@ -336,6 +336,26 @@ select {
     stroke-width: 2.4;
   }
 
+  .timeline-node-before::before,
+  .timeline-node-after::after {
+    position: absolute;
+    left: 50%;
+    width: 1px;
+    content: "";
+    transform: translateX(-50%);
+    background: oklch(0.9 0 0);
+  }
+
+  .timeline-node-before::before {
+    bottom: 100%;
+    height: 18px;
+  }
+
+  .timeline-node-after::after {
+    top: 100%;
+    height: calc(100% + 15px);
+  }
+
   .timeline-row {
     background: oklch(1 0 0);
     border-color: oklch(0.91 0 0);

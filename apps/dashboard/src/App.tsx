@@ -937,11 +937,12 @@ function App() {
                     <TabsContent value="timeline" className="min-h-0 flex-1">
                       <ScrollArea className="h-full pr-2">
                         <div className="relative flex flex-col">
-                          <div className="absolute bottom-0 left-[140px] top-3 w-px bg-border" />
-                          {selectedSession.events.map((event) => (
+                          {selectedSession.events.map((event, index) => (
                             <TimelineEvent
                               key={event.id}
                               event={event}
+                              isFirst={index === 0}
+                              isLast={index === selectedSession.events.length - 1}
                               selected={event.id === activeEventId}
                               onClick={() => {
                                 setActiveEventId(event.id)
@@ -1217,10 +1218,14 @@ function ResizeHandle({
 
 function TimelineEvent({
   event,
+  isFirst,
+  isLast,
   selected,
   onClick,
 }: {
   event: TraceEvent
+  isFirst: boolean
+  isLast: boolean
   selected: boolean
   onClick: () => void
 }) {
@@ -1242,7 +1247,14 @@ function TimelineEvent({
       )}
     >
       <span className="font-mono text-sm text-muted-foreground">{event.at}</span>
-      <span className={cn("event-icon relative z-10 flex size-8 items-center justify-center rounded-full", colorClass)}>
+      <span
+        className={cn(
+          "timeline-node relative z-10 flex size-8 items-center justify-center",
+          !isFirst && "timeline-node-before",
+          !isLast && "timeline-node-after",
+        )}
+      >
+        <span className={cn("event-icon relative z-10 flex size-8 items-center justify-center rounded-full", colorClass)}>
         {event.type.includes("Tool") ? (
           <Wrench data-icon="inline-start" />
         ) : event.type.includes("LLM") ? (
@@ -1252,6 +1264,7 @@ function TimelineEvent({
         ) : (
           <PlayCircle data-icon="inline-start" />
         )}
+        </span>
       </span>
       <div className="min-w-0">
         <div className="truncate font-medium">{event.type}</div>
