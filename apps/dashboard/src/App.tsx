@@ -525,9 +525,20 @@ function buildAllSessionUsageBars(sessions: TraceSession[]): UsageBar[] {
   return Array.from(buckets.values())
 }
 
-function buildTokenMix(session: TraceSession): TokenMixItem[] {
-  const promptTokens = session.promptTokens
-  const completionTokens = session.completionTokens
+function buildTokenTotals(sessions: TraceSession[]): RawTokenUsage {
+  return sessions.reduce<RawTokenUsage>(
+    (totals, session) => ({
+      prompt_tokens: (totals.prompt_tokens ?? 0) + session.promptTokens,
+      completion_tokens: (totals.completion_tokens ?? 0) + session.completionTokens,
+      total_tokens: (totals.total_tokens ?? 0) + session.totalTokens,
+    }),
+    { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  )
+}
+
+function buildTokenMix(usage: RawTokenUsage): TokenMixItem[] {
+  const promptTokens = usage.prompt_tokens ?? 0
+  const completionTokens = usage.completion_tokens ?? 0
   const total = Math.max(1, promptTokens + completionTokens)
   return [
     {
@@ -811,7 +822,14 @@ function App() {
     selectedSession.events[0]
   const usageBars = buildAllSessionUsageBars(sessionRows)
   const maxHourlyTokens = Math.max(1, ...usageBars.map((bucket) => bucket.totalTokens))
-  const tokenMix = buildTokenMix(selectedSession)
+  const allTokenUsage = buildTokenTotals(sessionRows)
+  const currentTokenUsage: RawTokenUsage = {
+    prompt_tokens: selectedSession.promptTokens,
+    completion_tokens: selectedSession.completionTokens,
+    total_tokens: selectedSession.totalTokens,
+  }
+  const displayedTokenUsage = tokenUsageMode === "all" ? allTokenUsage : currentTokenUsage
+  const tokenMix = buildTokenMix(currentTokenUsage)
   const eventBreakdown = buildEventBreakdown(selectedSession)
   const highlightedPayload = highlightJson(activeEvent?.payload ?? {})
 
@@ -1223,7 +1241,7 @@ function App() {
                     </CardAction>
                     <CardDescription>
                       <span className="text-2xl font-semibold text-foreground">
-                        {selectedSession.totalTokens.toLocaleString()}
+                        {(displayedTokenUsage.total_tokens ?? 0).toLocaleString()}
                       </span>{" "}
                       Total Tokens
                     </CardDescription>
@@ -1231,10 +1249,10 @@ function App() {
                   <CardContent>
                     <div className="mb-4 flex gap-4 text-sm">
                       <span className="text-blue-600">
-                        ↓ {selectedSession.promptTokens.toLocaleString()} input
+                        ↓ {(displayedTokenUsage.prompt_tokens ?? 0).toLocaleString()} input
                       </span>
                       <span className="text-emerald-600">
-                        ↑ {selectedSession.completionTokens.toLocaleString()} output
+                        ↑ {(displayedTokenUsage.completion_tokens ?? 0).toLocaleString()} output
                       </span>
                     </div>
                     {tokenUsageMode === "current" ? (
@@ -1242,7 +1260,7 @@ function App() {
                         <div className="usage-pie animated-pie" style={{ background: pieBackground(tokenMix) }}>
                           <div className="usage-pie-center text-center">
                             <div className="text-2xl font-semibold leading-none">
-                              {selectedSession.totalTokens.toLocaleString()}
+                              {(displayedTokenUsage.total_tokens ?? 0).toLocaleString()}
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">tokens</div>
                           </div>
