@@ -5,6 +5,34 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-05-28
+
+EasyAgent 0.6.1 polishes the local dashboard experience for real streaming
+agent runs. The dashboard can now update while an LLM response is still being
+generated, and the timeline stays readable by folding noisy stream chunks.
+
+### Added
+
+- `LLMStreamChunkEvent` trace events are emitted during `Agent.stream()` and
+  `ReactAgent.stream()` so live dashboards can render partial assistant output
+  before the final `LLMRespondedEvent`.
+- The dashboard SSE endpoint now detects SQLite trace changes from table state
+  instead of relying on file modification timestamps.
+
+### Changed
+
+- Dashboard message bubbles now use streaming chunk events for in-progress
+  assistant output, then reconcile with the final response payload.
+- Timeline display collapses consecutive stream chunk events into one grouped
+  row while preserving the original event ids in the payload panel.
+- Removed dashboard-only helper scripts from `apps/dashboard/scripts`.
+
+### Install
+
+```bash
+pip install -U easy-agent-sdk==0.6.1
+```
+
 ## [0.6.0] - 2026-05-28
 
 EasyAgent 0.6 turns the SDK into a more inspectable agent framework while

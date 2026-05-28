@@ -1,5 +1,6 @@
 """EasyAgent — an incrementally designed agent SDK.
 
+v0.6.1: Improves live dashboard streaming traces and timeline display.
 v0.6.0: Adds tracing persistence, streaming model responses, Agent Skills
 loading, and the local dashboard CLI.
 """
@@ -52,7 +53,7 @@ from easyagent.worlds import (
     StatefulWorld,
 )
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 __all__ = [
     # ── single-agent (unchanged) ───────────────────────────────────────
