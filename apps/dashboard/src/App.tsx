@@ -44,6 +44,7 @@ hljs.registerLanguage("json", json)
 type SessionStatus = "completed" | "failed" | "running"
 type StatusFilter = "all" | SessionStatus
 type TimeFilter = "all" | "15m" | "1h"
+type TokenUsageMode = "recent" | "all"
 
 type RawTokenUsage = {
   prompt_tokens?: number
@@ -130,6 +131,13 @@ type UsageBar = {
 }
 
 type EventBreakdownItem = {
+  type: string
+  count: number
+  percentage: number
+  color: string
+}
+
+type TokenMixItem = {
   type: string
   count: number
   percentage: number
@@ -515,6 +523,26 @@ function buildSessionUsageBars(session: TraceSession): UsageBar[] {
   return Array.from(buckets.values())
 }
 
+function buildTokenMix(session: TraceSession): TokenMixItem[] {
+  const promptTokens = session.promptTokens
+  const completionTokens = session.completionTokens
+  const total = Math.max(1, promptTokens + completionTokens)
+  return [
+    {
+      type: "Input",
+      count: promptTokens,
+      percentage: (promptTokens / total) * 100,
+      color: "oklch(0.62 0.18 247)",
+    },
+    {
+      type: "Output",
+      count: completionTokens,
+      percentage: (completionTokens / total) * 100,
+      color: "oklch(0.66 0.16 150)",
+    },
+  ]
+}
+
 function buildEventBreakdown(session: TraceSession): EventBreakdownItem[] {
   const total = Math.max(1, session.events.length)
   const counts = new Map<string, number>()
@@ -676,6 +704,7 @@ function App() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [modelFilter, setModelFilter] = useState("all")
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all")
+  const [tokenUsageMode, setTokenUsageMode] = useState<TokenUsageMode>("recent")
   const [selectedId, setSelectedId] = useState("")
   const [activeEventId, setActiveEventId] = useState("")
   const [activeMessageId, setActiveMessageId] = useState("")
@@ -684,6 +713,8 @@ function App() {
   const [dbConnected, setDbConnected] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const dbFileInputRef = useRef<HTMLInputElement>(null)
+  const dbMenuRef = useRef<HTMLDivElement>(null)
+  const filtersMenuRef = useRef<HTMLDivElement>(null)
   const sectionRef = useRef<HTMLElement>(null)
   const [columns, setColumns] = useState({ sessions: 420, inspector: 430 })
   const sessionRows = useMemo(() => rawSessionData.map(toTraceSession), [rawSessionData])
@@ -730,6 +761,33 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    function closeMenusOnPointerDown(event: globalThis.PointerEvent) {
+      const target = event.target
+      if (!(target instanceof Node)) return
+
+      if (dbMenuOpen && !dbMenuRef.current?.contains(target)) {
+        setDbMenuOpen(false)
+      }
+      if (filtersOpen && !filtersMenuRef.current?.contains(target)) {
+        setFiltersOpen(false)
+      }
+    }
+
+    function closeMenusOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return
+      setDbMenuOpen(false)
+      setFiltersOpen(false)
+    }
+
+    document.addEventListener("pointerdown", closeMenusOnPointerDown)
+    document.addEventListener("keydown", closeMenusOnEscape)
+    return () => {
+      document.removeEventListener("pointerdown", closeMenusOnPointerDown)
+      document.removeEventListener("keydown", closeMenusOnEscape)
+    }
+  }, [dbMenuOpen, filtersOpen])
+
   const filteredSessions = useMemo(() => {
     return sessionRows.filter((session) => {
       if (statusFilter !== "all" && session.status !== statusFilter) return false
@@ -751,6 +809,7 @@ function App() {
     selectedSession.events[0]
   const usageBars = buildSessionUsageBars(selectedSession)
   const maxHourlyTokens = Math.max(1, ...usageBars.map((bucket) => bucket.totalTokens))
+  const tokenMix = buildTokenMix(selectedSession)
   const eventBreakdown = buildEventBreakdown(selectedSession)
   const highlightedPayload = highlightJson(activeEvent?.payload ?? {})
 
@@ -883,7 +942,7 @@ function App() {
               <ChevronDown className="size-3.5 text-muted-foreground" />
               <span className="text-muted-foreground">Sessions</span>
             </div>
-            <div className="relative">
+            <div ref={dbMenuRef} className="relative">
               <button
                 className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition hover:bg-muted/60"
                 type="button"
@@ -946,7 +1005,7 @@ function App() {
               <Card className="panel-card flex h-full min-h-0 rounded-none border-0 shadow-none ring-0">
                 <CardHeader className="shrink-0 border-b px-4 py-4">
                   <CardTitle className="text-xl">Sessions</CardTitle>
-                  <CardAction className="relative flex items-center gap-2">
+                  <CardAction ref={filtersMenuRef} className="relative flex items-center gap-2">
                     <button
                       className={cn(
                         "flex h-8 items-center gap-2 rounded-md border px-2.5 text-xs transition hover:bg-muted/70",
@@ -1141,6 +1200,25 @@ function App() {
                 <Card size="sm" className="rounded-lg border shadow-none ring-0">
                   <CardHeader>
                     <CardTitle>Token Usage</CardTitle>
+                    <CardAction>
+                      <div className="inline-flex h-8 rounded-md bg-muted p-0.5 text-xs">
+                        {(["recent", "all"] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            className={cn(
+                              "rounded-[5px] px-2.5 font-medium capitalize transition",
+                              tokenUsageMode === mode
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                            type="button"
+                            onClick={() => setTokenUsageMode(mode)}
+                          >
+                            {mode}
+                          </button>
+                        ))}
+                      </div>
+                    </CardAction>
                     <CardDescription>
                       <span className="text-2xl font-semibold text-foreground">
                         {selectedSession.totalTokens.toLocaleString()}
@@ -1157,47 +1235,76 @@ function App() {
                         ↑ {selectedSession.completionTokens.toLocaleString()} output
                       </span>
                     </div>
-                    <div className="grid h-32 grid-cols-12 items-end gap-1.5 pt-8">
-                      {usageBars.map((bucket) => {
-                        const promptHeight = (bucket.promptTokens / maxHourlyTokens) * 100
-                        const completionHeight = (bucket.completionTokens / maxHourlyTokens) * 100
-                        return (
-                          <div
-                            key={bucket.key}
-                            className="usage-bar relative h-full rounded-sm bg-muted/50"
-                            tabIndex={0}
-                            aria-label={`${bucket.hour}, ${bucket.totalTokens} total tokens`}
-                          >
-                            <div className="usage-tooltip pointer-events-none absolute left-1/2 bottom-full z-20 mb-2 w-max -translate-x-1/2 rounded-md border bg-background px-2.5 py-2 text-left text-[11px] shadow-lg">
-                              <div className="mb-1 font-mono font-medium text-foreground">{bucket.hour}:00</div>
-                              <div className="text-blue-600">Input {bucket.promptTokens.toLocaleString()}</div>
-                              <div className="text-emerald-600">
-                                Output {bucket.completionTokens.toLocaleString()}
-                              </div>
-                              <div className="mt-1 border-t pt-1 font-medium text-foreground">
-                                Total {bucket.totalTokens.toLocaleString()}
-                              </div>
+                    {tokenUsageMode === "recent" ? (
+                      <div className="token-pie-layout">
+                        <div className="usage-pie animated-pie" style={{ background: pieBackground(tokenMix) }}>
+                          <div className="usage-pie-center text-center">
+                            <div className="text-2xl font-semibold leading-none">
+                              {selectedSession.totalTokens.toLocaleString()}
                             </div>
-                            <div
-                              className="usage-bar-prompt absolute bottom-0 w-full rounded-b-sm bg-blue-500/80"
-                              style={{ height: `${promptHeight}%` }}
-                            />
-                            <div
-                              className="usage-bar-completion absolute w-full rounded-t-sm bg-emerald-500/75"
-                              style={{
-                                bottom: `${promptHeight}%`,
-                                height: `${completionHeight}%`,
-                              }}
-                            />
+                            <div className="mt-1 text-xs text-muted-foreground">tokens</div>
                           </div>
-                        )
-                      })}
-                    </div>
-                    <div className="mt-2 grid grid-cols-12 gap-1.5 text-center text-[10px] text-muted-foreground">
-                      {usageBars.map((bucket) => (
-                        <span key={bucket.key}>{bucket.hour}</span>
-                      ))}
-                    </div>
+                        </div>
+                        <div className="grid min-w-0 gap-2">
+                          {tokenMix.map((item) => (
+                            <div key={item.type} className="token-mix-row">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="event-dot" style={{ background: item.color }} />
+                                <span className="font-medium">{item.type}</span>
+                              </div>
+                              <span className="font-mono text-sm">{item.count.toLocaleString()}</span>
+                              <span className="text-right text-xs text-muted-foreground">
+                                {item.percentage.toFixed(1)}%
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid h-32 grid-cols-12 items-end gap-1.5 pt-8">
+                          {usageBars.map((bucket) => {
+                            const promptHeight = (bucket.promptTokens / maxHourlyTokens) * 100
+                            const completionHeight = (bucket.completionTokens / maxHourlyTokens) * 100
+                            return (
+                              <div
+                                key={bucket.key}
+                                className="usage-bar relative h-full rounded-sm bg-muted/50"
+                                tabIndex={0}
+                                aria-label={`${bucket.hour}, ${bucket.totalTokens} total tokens`}
+                              >
+                                <div className="usage-tooltip pointer-events-none absolute left-1/2 bottom-full z-20 mb-2 w-max -translate-x-1/2 rounded-md border bg-background px-2.5 py-2 text-left text-[11px] shadow-lg">
+                                  <div className="mb-1 font-mono font-medium text-foreground">{bucket.hour}:00</div>
+                                  <div className="text-blue-600">Input {bucket.promptTokens.toLocaleString()}</div>
+                                  <div className="text-emerald-600">
+                                    Output {bucket.completionTokens.toLocaleString()}
+                                  </div>
+                                  <div className="mt-1 border-t pt-1 font-medium text-foreground">
+                                    Total {bucket.totalTokens.toLocaleString()}
+                                  </div>
+                                </div>
+                                <div
+                                  className="usage-bar-prompt absolute bottom-0 w-full rounded-b-sm bg-blue-500/80"
+                                  style={{ height: `${promptHeight}%` }}
+                                />
+                                <div
+                                  className="usage-bar-completion absolute w-full rounded-t-sm bg-emerald-500/75"
+                                  style={{
+                                    bottom: `${promptHeight}%`,
+                                    height: `${completionHeight}%`,
+                                  }}
+                                />
+                              </div>
+                            )
+                          })}
+                        </div>
+                        <div className="mt-2 grid grid-cols-12 gap-1.5 text-center text-[10px] text-muted-foreground">
+                          {usageBars.map((bucket) => (
+                            <span key={bucket.key}>{bucket.hour}</span>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -1278,7 +1385,7 @@ function EventBreakdownPanel({
   return (
     <div className="event-breakdown flex h-full min-h-0 flex-col gap-5 rounded-lg border p-5">
       <div className="grid shrink-0 grid-cols-[180px_minmax(0,1fr)] items-center gap-6">
-        <div className="event-pie" style={{ background: pieBackground(items) }}>
+        <div className="event-pie animated-pie" style={{ background: pieBackground(items) }}>
           <div className="event-pie-center text-center">
             <div className="text-3xl font-semibold leading-none">{total}</div>
             <div className="mt-1 text-xs text-muted-foreground">events</div>
