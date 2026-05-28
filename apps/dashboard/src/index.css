@@ -613,6 +613,30 @@ select {
     border-color: oklch(0.9 0 0);
   }
 
+  .payload-box .hljs {
+    display: block;
+    overflow: visible;
+    background: transparent;
+    color: oklch(0.24 0 0);
+  }
+
+  .payload-box .hljs-attr {
+    color: oklch(0.48 0.16 247);
+  }
+
+  .payload-box .hljs-string {
+    color: oklch(0.49 0.15 150);
+  }
+
+  .payload-box .hljs-number,
+  .payload-box .hljs-literal {
+    color: oklch(0.58 0.18 35);
+  }
+
+  .payload-box .hljs-punctuation {
+    color: oklch(0.5 0 0);
+  }
+
   [data-slot="scroll-area-scrollbar"] {
     border: 0;
   }

@@ -1,4 +1,6 @@
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react"
+import hljs from "highlight.js/lib/core"
+import json from "highlight.js/lib/languages/json"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
@@ -36,6 +38,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import traceFixture from "@/data/traces.json"
 import { cn } from "@/lib/utils"
+
+hljs.registerLanguage("json", json)
 
 type SessionStatus = "completed" | "failed" | "running"
 type StatusFilter = "all" | SessionStatus
@@ -419,6 +423,10 @@ function pieBackground(items: EventBreakdownItem[]): string {
   return `conic-gradient(${segments.join(", ")})`
 }
 
+function highlightJson(value: unknown): string {
+  return hljs.highlight(JSON.stringify(value, null, 2), { language: "json" }).value
+}
+
 function normalizeRole(value: unknown): MessageRole {
   return value === "system" || value === "user" || value === "assistant" || value === "tool"
     ? value
@@ -598,6 +606,7 @@ function App() {
   const usageBars = buildSessionUsageBars(selectedSession)
   const maxHourlyTokens = Math.max(1, ...usageBars.map((bucket) => bucket.totalTokens))
   const eventBreakdown = buildEventBreakdown(selectedSession)
+  const highlightedPayload = highlightJson(activeEvent?.payload ?? {})
 
   const messages = buildMessageView(selectedSession)
   const selectedMessageId = activeMessageId || messages[0]?.id || ""
@@ -1054,7 +1063,10 @@ function App() {
                   </CardHeader>
                   <CardContent className="flex min-h-0 flex-1 flex-col">
                     <pre className="payload-box min-h-0 flex-1 overflow-auto rounded-md border p-3 font-mono text-xs leading-6">
-                      {JSON.stringify(activeEvent?.payload ?? {}, null, 2)}
+                      <code
+                        className="hljs language-json"
+                        dangerouslySetInnerHTML={{ __html: highlightedPayload }}
+                      />
                     </pre>
                   </CardContent>
                 </Card>
