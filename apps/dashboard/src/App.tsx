@@ -1242,7 +1242,7 @@ function TimelineEvent({
       type="button"
       onClick={onClick}
       className={cn(
-        "timeline-row grid grid-cols-[112px_32px_1fr_auto] items-start gap-3 border-b px-0 py-4 text-left",
+        "timeline-row grid grid-cols-[112px_32px_1fr_auto] items-center gap-3 border-b px-0 py-4 text-left",
         selected && "selected-row",
       )}
     >
@@ -1255,15 +1255,15 @@ function TimelineEvent({
         )}
       >
         <span className={cn("event-icon relative z-10 flex size-8 items-center justify-center rounded-full", colorClass)}>
-        {event.type.includes("Tool") ? (
-          <Wrench data-icon="inline-start" />
-        ) : event.type.includes("LLM") ? (
-          <MessagesSquare data-icon="inline-start" />
-        ) : event.type.includes("Finished") ? (
-          <CheckCircle2 data-icon="inline-start" />
-        ) : (
-          <PlayCircle data-icon="inline-start" />
-        )}
+          {event.type.includes("Tool") ? (
+            <Wrench data-icon="inline-start" />
+          ) : event.type.includes("LLM") ? (
+            <MessagesSquare data-icon="inline-start" />
+          ) : event.type.includes("Finished") ? (
+            <CheckCircle2 data-icon="inline-start" />
+          ) : (
+            <PlayCircle data-icon="inline-start" />
+          )}
         </span>
       </span>
       <div className="min-w-0">
