@@ -12,7 +12,7 @@ from easyagent.skill.manager import SkillManager
 class LoadSkillTool:
     name = "load_skill"
     type = "function"
-    description = "Load a skill's full instructions and activate the tools it enables."
+    description = "Load a skill's full instructions and enable any registered tools it allows."
     parameters = {
         "type": "object",
         "properties": {
@@ -35,8 +35,13 @@ class LoadSkillTool:
             return f"Error: skill '{skill_name}' not found."
 
         activated: list[str] = []
+        missing: list[str] = []
         if session is not None:
             for declared_tool in skill.tools:
+                tool = getattr(session.agent, "_tool_manager", None).get(declared_tool) if session.agent else None
+                if tool is None:
+                    missing.append(declared_tool)
+                    continue
                 if declared_tool not in session.enabled_tools:
                     session.enabled_tools.append(declared_tool)
                     activated.append(declared_tool)
@@ -47,6 +52,8 @@ class LoadSkillTool:
         header = [f"# Skill: {skill.name}"]
         if activated:
             header.append(f"Activated tools: {', '.join(activated)}")
+        if missing:
+            header.append(f"Declared tools not registered: {', '.join(missing)}")
         files = skill.list_files()
         if files:
             header.append("Available packaged files:")

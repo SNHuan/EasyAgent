@@ -1,6 +1,6 @@
 """Manual smoke test: end-to-end Skills flow with a real LLM.
 
-Run: python -m easyagent.test.smoke_skill
+Run: python -m tests.smoke_skill
 Requires easyagent/config/config.yaml with gemini-3-flash-preview configured.
 """
 

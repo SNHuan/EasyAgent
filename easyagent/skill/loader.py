@@ -8,7 +8,7 @@ import yaml
 from easyagent.skill.base import Skill, SkillMeta, SkillValidationError
 
 _FRONTMATTER_DELIM = re.compile(r"(?m)^---\s*$")
-_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
 def parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -56,7 +56,12 @@ def _build_meta(raw: dict, source: Path) -> SkillMeta:
     if not _NAME_RE.match(name):
         raise SkillValidationError(
             f"{source}: skill name '{name}' must match {_NAME_RE.pattern} "
-            "(lowercase letters, digits, hyphen, underscore)"
+            "(1-64 chars; lowercase letters, digits, hyphen, underscore)"
+        )
+    parent_name = source.parent.name
+    if name != parent_name:
+        raise SkillValidationError(
+            f"{source}: skill name '{name}' must match parent directory '{parent_name}'"
         )
 
     description = raw.get("description")

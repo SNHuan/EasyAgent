@@ -35,17 +35,7 @@ async def test_sandbox_agent_runs_bash_tool():
                     )
                 ],
             ),
-            LLMResponse(
-                content="finishing",
-                tool_calls=[
-                    ToolCall(
-                        id="call_2",
-                        type="function",
-                        name="end",
-                        arguments={"data": "done"},
-                    )
-                ],
-            ),
+            LLMResponse(content="done"),
         ]
     )
 

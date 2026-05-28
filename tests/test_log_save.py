@@ -1,7 +1,7 @@
 """Test script for saving agent conversation logs to file.
 
 Usage:
-    python -m test.test_log_save
+    python -m tests.test_log_save
 """
 
 import asyncio

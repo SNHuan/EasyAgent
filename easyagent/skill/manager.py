@@ -10,6 +10,9 @@ from easyagent.skill.loader import load_skill_from_dir
 
 _log = logging.getLogger(__name__)
 
+SKILLS_DIR_ENV = "EA_SKILLS_DIR"
+DEFAULT_SKILLS_DIR = ".easyagent/skills"
+
 
 class SkillManager:
     """Registry of skills with lazy directory discovery."""
@@ -74,10 +77,13 @@ class SkillManager:
         if self._defaults_queued:
             return
         self._defaults_queued = True
-        if env_dir := os.getenv("EA_SKILLS_DIR"):
-            self.add_search_dir(env_dir)
-        cwd_skills = Path.cwd() / "skills"
-        self.add_search_dir(cwd_skills)
+        env_dirs = os.getenv(SKILLS_DIR_ENV)
+        if env_dirs:
+            for raw_dir in env_dirs.split(os.pathsep):
+                if raw_dir.strip():
+                    self.add_search_dir(raw_dir.strip())
+            return
+        self.add_search_dir(Path.cwd() / DEFAULT_SKILLS_DIR)
 
     def _ensure_discovered(self) -> None:
         self._ensure_defaults_queued()

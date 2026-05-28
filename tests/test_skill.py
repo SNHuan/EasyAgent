@@ -133,6 +133,33 @@ def test_load_skill_rejects_invalid_name(tmp_path):
         load_skill_from_dir(d)
 
 
+def test_load_skill_rejects_name_that_does_not_match_directory(tmp_path):
+    from easyagent.skill import SkillValidationError, load_skill_from_dir
+
+    d = tmp_path / "skill-dir"
+    d.mkdir()
+    (d / "SKILL.md").write_text(
+        "---\nname: other-name\ndescription: x\n---\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SkillValidationError, match="must match parent directory"):
+        load_skill_from_dir(d)
+
+
+def test_load_skill_rejects_too_long_name(tmp_path):
+    from easyagent.skill import SkillValidationError, load_skill_from_dir
+
+    name = "a" * 65
+    d = tmp_path / name
+    d.mkdir()
+    (d / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: x\n---\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SkillValidationError):
+        load_skill_from_dir(d)
+
+
 def test_load_skill_accepts_tools_alias(tmp_path):
     """Both `allowed-tools` and `tools` keys should work."""
     from easyagent.skill import load_skill_from_dir
@@ -165,6 +192,38 @@ def test_manager_discovery_and_idempotent(tmp_path):
     count_before = len(mgr._skills)
     mgr.discover()
     assert len(mgr._skills) == count_before
+
+
+def test_manager_uses_easyagent_skills_default_dir(tmp_path, monkeypatch):
+    from easyagent.skill import SkillManager
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("EA_SKILLS_DIR", raising=False)
+    _write_skill(tmp_path / ".easyagent" / "skills", "alpha")
+
+    mgr = SkillManager()
+    summaries = mgr.list_summaries()
+
+    assert [s["name"] for s in summaries] == ["alpha"]
+
+
+def test_manager_uses_env_skill_dirs(tmp_path, monkeypatch):
+    from easyagent.skill import SkillManager
+
+    default_root = tmp_path / ".easyagent" / "skills"
+    claude_root = tmp_path / ".claude" / "skills"
+    codex_root = tmp_path / ".codex" / "skills"
+    _write_skill(default_root, "default-skill")
+    _write_skill(claude_root, "claude-skill")
+    _write_skill(codex_root, "codex-skill")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EA_SKILLS_DIR", f"{claude_root}{__import__('os').pathsep}{codex_root}")
+
+    mgr = SkillManager()
+    summaries = mgr.list_summaries()
+
+    assert sorted(s["name"] for s in summaries) == ["claude-skill", "codex-skill"]
 
 
 def test_manager_unknown_skill_filtered(tmp_path):
@@ -277,13 +336,7 @@ async def test_load_skill_activates_declared_tools(tmp_path):
             arguments={"name": "demo"},
         )],
     )
-    final = LLMResponse(
-        content="finishing",
-        tool_calls=[ToolCall(
-            id="call_2", type="function", name="end",
-            arguments={"data": "All done."},
-        )],
-    )
+    final = LLMResponse(content="All done.")
 
     agent = SkillAgent(
         model=FakeLLM([first, final]),
@@ -319,13 +372,7 @@ async def test_load_skill_unknown_tool_graceful(tmp_path):
             arguments={"name": "demo"},
         )],
     )
-    final = LLMResponse(
-        content="finishing",
-        tool_calls=[ToolCall(
-            id="c2", type="function", name="end",
-            arguments={"data": "done"},
-        )],
-    )
+    final = LLMResponse(content="done")
 
     agent = SkillAgent(
         model=FakeLLM([first, final]),
@@ -336,6 +383,9 @@ async def test_load_skill_unknown_tool_graceful(tmp_path):
     session = agent.create_session()
     result = await agent.run("x", session=session)
     assert "done" in (result.final_output or "")
+    assert "this_tool_does_not_exist" not in session.enabled_tools
+    tool_msgs = [m for m in session.get_all_messages() if m.role == "tool"]
+    assert any("Declared tools not registered: this_tool_does_not_exist" in m.text() for m in tool_msgs)
 
 
 @pytest.mark.asyncio
@@ -353,13 +403,7 @@ async def test_load_skill_reports_packaged_files(tmp_path):
             arguments={"name": "demo"},
         )],
     )
-    final = LLMResponse(
-        content="finishing",
-        tool_calls=[ToolCall(
-            id="c2", type="function", name="end",
-            arguments={"data": "done"},
-        )],
-    )
+    final = LLMResponse(content="done")
 
     agent = SkillAgent(
         model=FakeLLM([first, final]),

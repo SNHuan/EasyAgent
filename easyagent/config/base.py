@@ -24,6 +24,8 @@ class BaseConfig(BaseModel):
     @classmethod
     def load(cls, path: str | Path | None = None) -> Self:
         config_path = Path(path) if path else _get_default_config()
+        if path is None and not config_path.exists():
+            return cls.model_validate({})
         data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         return cls.model_validate(data)
 

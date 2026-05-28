@@ -5,12 +5,16 @@ SkillAgent = ReactAgent + 按需加载的 SKILL.md 包。
 声明 ``skills=[...]`` 之后，agent 拿到的是这些 skill 的「短描述」+
 ``load_skill`` 等几个辅助工具。模型决定要用某个 skill 时调
 ``load_skill("name")``：skill 的完整正文进入 memory，``allowed-tools``
-里声明的工具被激活。
+里声明且已注册的工具被激活。
+
+本示例把 skills 放在 ``examples/.easyagent/skills``，并在运行时切到
+``examples`` 目录，让 EasyAgent 使用默认的 ``.easyagent/skills`` 发现规则。
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -37,11 +41,11 @@ class ProjectName:
 
 
 async def main() -> None:
+    os.chdir(Path(__file__).resolve().parent)
     agent = SkillAgent(
         model=LiteLLMModel("gpt-4o-mini"),
         tools=[ProjectName],
         skills=["project-intro"],
-        skill_root=Path(__file__).resolve().parent / "skills",
         max_iterations=5,
     )
     result = await agent.run("加载 project-intro skill，并按其中说明执行。")
