@@ -288,6 +288,57 @@ function eventSummaryText(event: RawTraceEvent): string {
   }
 }
 
+function buildTimelineEvents(events: TraceEvent[]): TraceEvent[] {
+  const timelineEvents: TraceEvent[] = []
+  let streamGroup: TraceEvent[] = []
+
+  function flushStreamGroup() {
+    if (streamGroup.length === 0) return
+    if (streamGroup.length === 1) {
+      timelineEvents.push(streamGroup[0])
+      streamGroup = []
+      return
+    }
+
+    const first = streamGroup[0]
+    const last = streamGroup[streamGroup.length - 1]
+    const content = streamGroup.map((event) => String(event.payload.content ?? "")).join("")
+    timelineEvents.push({
+      ...first,
+      id: `${first.id}-stream-group-${last.id}`,
+      summary: truncate(content || "Streaming response chunks.", 82),
+      latency: `${streamGroup.length} chunks`,
+      payload: {
+        event_type: "LLMStreamChunkEvent",
+        timestamp: first.payload.timestamp,
+        chunk_count: streamGroup.length,
+        event_ids: streamGroup.map((event) => event.id),
+        model: first.payload.model,
+        content,
+      },
+    })
+    streamGroup = []
+  }
+
+  for (const event of events) {
+    if (event.type === "LLMStreamChunkEvent") {
+      streamGroup.push(event)
+      continue
+    }
+    flushStreamGroup()
+    timelineEvents.push(event)
+  }
+
+  flushStreamGroup()
+  return timelineEvents
+}
+
+function isTimelineEventSelected(event: TraceEvent, activeEventId: string): boolean {
+  if (event.id === activeEventId) return true
+  const eventIds = event.payload.event_ids
+  return Array.isArray(eventIds) && eventIds.includes(activeEventId)
+}
+
 function buildMessageView(session: TraceSession): TraceMessage[] {
   const finalEvent =
     session.raw.events.findLast((event) => event.event_type === "AgentFinishedEvent") ??
@@ -693,8 +744,10 @@ function App() {
 
   const selectedSession =
     sessionRows.find((session) => session.id === selectedId) ?? sessionRows[0] ?? emptySession
+  const timelineEvents = useMemo(() => buildTimelineEvents(selectedSession.events), [selectedSession])
   const activeEvent =
     selectedSession.events.find((event) => event.id === activeEventId) ??
+    timelineEvents.find((event) => event.id === activeEventId) ??
     selectedSession.events[0]
   const usageBars = buildSessionUsageBars(selectedSession)
   const maxHourlyTokens = Math.max(1, ...usageBars.map((bucket) => bucket.totalTokens))
@@ -1030,13 +1083,13 @@ function App() {
                     <TabsContent value="timeline" className="min-h-0 flex-1">
                       <ScrollArea className="h-full pr-2">
                         <div className="relative flex flex-col">
-                          {selectedSession.events.map((event, index) => (
+                          {timelineEvents.map((event, index) => (
                             <TimelineEvent
                               key={event.id}
                               event={event}
                               isFirst={index === 0}
-                              isLast={index === selectedSession.events.length - 1}
-                              selected={event.id === activeEventId}
+                              isLast={index === timelineEvents.length - 1}
+                              selected={isTimelineEventSelected(event, activeEventId)}
                               onClick={() => {
                                 setActiveEventId(event.id)
                                 setActiveMessageId("")
