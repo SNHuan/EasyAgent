@@ -44,7 +44,7 @@ hljs.registerLanguage("json", json)
 type SessionStatus = "completed" | "failed" | "running"
 type StatusFilter = "all" | SessionStatus
 type TimeFilter = "all" | "15m" | "1h"
-type TokenUsageMode = "recent" | "all"
+type TokenUsageMode = "current" | "all"
 
 type RawTokenUsage = {
   prompt_tokens?: number
@@ -475,15 +475,15 @@ function buildMessageView(session: TraceSession): TraceMessage[] {
   return messages
 }
 
-function buildSessionUsageBars(session: TraceSession): UsageBar[] {
-  const eventTimes = session.events
-    .map((event) => event.payload.timestamp)
+function buildAllSessionUsageBars(sessions: TraceSession[]): UsageBar[] {
+  const eventTimes = sessions
+    .flatMap((session) => session.events.map((event) => event.payload.timestamp))
     .filter((value): value is string => typeof value === "string")
     .map((value) => new Date(value).getTime())
     .filter(Number.isFinite)
   const anchorTime = eventTimes.length > 0
     ? Math.max(...eventTimes)
-    : new Date(session.raw.ended_at ?? session.raw.started_at).getTime()
+    : Date.now()
   const anchor = new Date(anchorTime)
   anchor.setMinutes(0, 0, 0)
 
@@ -505,19 +505,21 @@ function buildSessionUsageBars(session: TraceSession): UsageBar[] {
     })
   }
 
-  for (const event of session.events) {
-    if (event.inTokens === 0 && event.outTokens === 0) continue
+  for (const session of sessions) {
+    for (const event of session.events) {
+      if (event.inTokens === 0 && event.outTokens === 0) continue
 
-    const timestamp = typeof event.payload.timestamp === "string"
-      ? new Date(event.payload.timestamp)
-      : new Date(session.raw.started_at)
-    timestamp.setMinutes(0, 0, 0)
-    const bucket = buckets.get(timestamp.toISOString())
-    if (!bucket) continue
+      const timestamp = typeof event.payload.timestamp === "string"
+        ? new Date(event.payload.timestamp)
+        : new Date(session.raw.started_at)
+      timestamp.setMinutes(0, 0, 0)
+      const bucket = buckets.get(timestamp.toISOString())
+      if (!bucket) continue
 
-    bucket.promptTokens += event.inTokens
-    bucket.completionTokens += event.outTokens
-    bucket.totalTokens += event.inTokens + event.outTokens
+      bucket.promptTokens += event.inTokens
+      bucket.completionTokens += event.outTokens
+      bucket.totalTokens += event.inTokens + event.outTokens
+    }
   }
 
   return Array.from(buckets.values())
@@ -704,7 +706,7 @@ function App() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [modelFilter, setModelFilter] = useState("all")
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all")
-  const [tokenUsageMode, setTokenUsageMode] = useState<TokenUsageMode>("recent")
+  const [tokenUsageMode, setTokenUsageMode] = useState<TokenUsageMode>("current")
   const [selectedId, setSelectedId] = useState("")
   const [activeEventId, setActiveEventId] = useState("")
   const [activeMessageId, setActiveMessageId] = useState("")
@@ -807,7 +809,7 @@ function App() {
     selectedSession.events.find((event) => event.id === activeEventId) ??
     timelineEvents.find((event) => event.id === activeEventId) ??
     selectedSession.events[0]
-  const usageBars = buildSessionUsageBars(selectedSession)
+  const usageBars = buildAllSessionUsageBars(sessionRows)
   const maxHourlyTokens = Math.max(1, ...usageBars.map((bucket) => bucket.totalTokens))
   const tokenMix = buildTokenMix(selectedSession)
   const eventBreakdown = buildEventBreakdown(selectedSession)
@@ -1202,7 +1204,7 @@ function App() {
                     <CardTitle>Token Usage</CardTitle>
                     <CardAction>
                       <div className="inline-flex h-8 rounded-md bg-muted p-0.5 text-xs">
-                        {(["recent", "all"] as const).map((mode) => (
+                        {(["current", "all"] as const).map((mode) => (
                           <button
                             key={mode}
                             className={cn(
@@ -1235,7 +1237,7 @@ function App() {
                         ↑ {selectedSession.completionTokens.toLocaleString()} output
                       </span>
                     </div>
-                    {tokenUsageMode === "recent" ? (
+                    {tokenUsageMode === "current" ? (
                       <div className="token-pie-layout">
                         <div className="usage-pie animated-pie" style={{ background: pieBackground(tokenMix) }}>
                           <div className="usage-pie-center text-center">
