@@ -101,6 +101,23 @@ class MessageEvent(BaseEvent):
         return agent_id in self.to
 
 
+@dataclass
+class CustomTraceEvent(BaseEvent):
+    """User-defined event that can be persisted and projected in dashboards.
+
+    ``event_type`` becomes the persisted trace event type. ``payload`` stores
+    arbitrary JSON-friendly data, and ``display`` optionally tells dashboards
+    where and how to render the event.
+    """
+
+    event_type: str = "CustomTraceEvent"
+    session_id: str = ""
+    agent_id: AgentId = ""
+    summary: str = ""
+    payload: dict[str, Any] = field(default_factory=dict)
+    display: Any = None
+
+
 # ── Lifecycle events (optional telemetry; not required for core loop) ────────
 
 @dataclass

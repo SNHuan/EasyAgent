@@ -1,5 +1,7 @@
 """EasyAgent — an incrementally designed agent SDK.
 
+v0.6.4: Adds dashboard display hints for custom trace events.
+v0.6.3: Polishes runtime dashboard timelines and navigation.
 v0.6.2: Adds runtime-level tracing and runtime/entity/session dashboard trees.
 v0.6.1: Improves live dashboard streaming traces and timeline display.
 v0.6.0: Adds tracing persistence, streaming model responses, Agent Skills
@@ -36,7 +38,7 @@ from easyagent.core import (
     World,
 )
 from easyagent.entities import HumanEntity, LLMEntity, TeamEntity
-from easyagent.events import EventBus, MessageEvent
+from easyagent.events import CustomTraceEvent, EventBus, MessageEvent
 from easyagent.model.litellm_model import LiteLLMModel
 from easyagent.model.schema import LLMStreamChunk, Message
 from easyagent.mcp import MCPToolset, load_mcp_tools, register_mcp_tools
@@ -44,7 +46,7 @@ from easyagent.presets import chatroom, debate, fanout, groupchat, sequential
 from easyagent.skill import SkillManager
 from easyagent.store import JSONLStore, MemoryStore, SQLiteStore, TraceStore
 from easyagent.tool import ToolManager, register_tool
-from easyagent.tracing import EventTrace, SessionTrace, TokenUsage, TraceRecorder
+from easyagent.tracing import DisplayHint, EventTrace, SessionTrace, TokenUsage, TraceRecorder
 from easyagent.worlds import (
     ConversationWorld,
     Grid2D,
@@ -54,7 +56,7 @@ from easyagent.worlds import (
     StatefulWorld,
 )
 
-__version__ = "0.6.2"
+__version__ = "0.6.4"
 
 __all__ = [
     # ── single-agent (unchanged) ───────────────────────────────────────
@@ -68,11 +70,13 @@ __all__ = [
     "LLMStreamChunk",
     "Message",
     "MessageEvent",
+    "CustomTraceEvent",
     "EventBus",
     "ToolManager",
     "SkillManager",
     "register_tool",
     "TraceRecorder",
+    "DisplayHint",
     "SessionTrace",
     "EventTrace",
     "TokenUsage",

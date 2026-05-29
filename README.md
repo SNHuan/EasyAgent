@@ -69,6 +69,34 @@ The dashboard understands both standalone agent sessions and runtime traces, so
 runtime/world/entity/session trees appear automatically when your application
 writes runtime events into the selected trace store.
 
+Custom events can opt into dashboard surfaces by attaching a `DisplayHint`.
+For example, this event is persisted as `PlannerStepEvent` and rendered in the
+Messages tab as an assistant bubble:
+
+```python
+from easyagent import CustomTraceEvent, DisplayHint, EventBus, MemoryStore, TraceRecorder
+
+store = MemoryStore()
+bus = EventBus()
+TraceRecorder(store).attach(bus)
+
+await bus.publish(
+    CustomTraceEvent(
+        event_type="PlannerStepEvent",
+        session_id="sess_planner",
+        agent_id="planner",
+        summary="Planner selected search_docs",
+        payload={"step": "search_docs"},
+        display=DisplayHint.messages(
+            "Need to inspect README and pyproject first.",
+            role="assistant",
+            title="Planner step",
+            source="planner",
+        ),
+    )
+)
+```
+
 Create `easyagent/config/config.yaml` or configure LiteLLM through environment
 variables:
 

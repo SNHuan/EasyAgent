@@ -9,6 +9,7 @@ from easyagent.events import (
     AgentFinishedEvent,
     AgentStartedEvent,
     BaseEvent,
+    CustomTraceEvent,
     EntityFinishedEvent,
     EntityStartedEvent,
     EventBus,
@@ -92,10 +93,18 @@ def event_to_trace(event: BaseEvent) -> EventTrace:
     payload = _event_payload(event)
     session_id = _session_id(event, payload)
     agent_id = str(payload.get("agent_id") or payload.get("sender") or session_id)
+    event_type = type(event).__name__
+    if isinstance(event, CustomTraceEvent):
+        event_type = event.event_type or event_type
+        payload = {
+            "summary": event.summary,
+            **event.payload,
+            **({"display": _jsonable(event.display)} if event.display is not None else {}),
+        }
     return EventTrace(
         event_id=event.event_id,
         session_id=session_id,
-        event_type=type(event).__name__,
+        event_type=event_type,
         timestamp=event.timestamp,
         agent_id=agent_id,
         payload=payload,

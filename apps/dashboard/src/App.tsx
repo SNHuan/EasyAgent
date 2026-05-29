@@ -206,6 +206,18 @@ type TraceMessage = {
   tokens?: string
 }
 
+type TraceDisplayHint = {
+  surface?: "messages" | "timeline" | "summary" | "metric" | "payload" | "hidden"
+  role?: MessageRole
+  title?: string
+  content?: string
+  source?: string
+  icon?: string
+  color?: string
+  priority?: string
+  metadata?: Record<string, unknown>
+}
+
 type UsageBar = {
   key: string
   hour: string
@@ -450,6 +462,13 @@ function inferSessionTitle(session: RawTraceSession): string {
 }
 
 function eventSummaryText(event: RawTraceEvent): string {
+  const display = getDisplayHint(event.payload)
+  if (display?.title) return truncate(display.title, 82)
+  if (display?.content) return truncate(display.content, 82)
+  if (typeof event.payload.summary === "string" && event.payload.summary.length > 0) {
+    return truncate(event.payload.summary, 82)
+  }
+
   switch (event.event_type) {
     case "AgentStartedEvent":
       return "Session created and memory initialized."
@@ -505,6 +524,9 @@ function buildTimelineEvents(events: TraceEvent[]): TraceEvent[] {
   }
 
   for (const event of events) {
+    if (getDisplayHint(event.payload)?.surface === "hidden") {
+      continue
+    }
     if (event.type === "LLMStreamChunkEvent") {
       streamGroup.push(event)
       continue
@@ -515,6 +537,22 @@ function buildTimelineEvents(events: TraceEvent[]): TraceEvent[] {
 
   flushStreamGroup()
   return timelineEvents
+}
+
+function getDisplayHint(payload: Record<string, unknown>): TraceDisplayHint | null {
+  if (!isRecord(payload.display)) return null
+  const display = payload.display
+  return {
+    surface: typeof display.surface === "string" ? display.surface as TraceDisplayHint["surface"] : undefined,
+    role: typeof display.role === "string" ? normalizeRole(display.role) : undefined,
+    title: typeof display.title === "string" ? display.title : undefined,
+    content: typeof display.content === "string" ? display.content : undefined,
+    source: typeof display.source === "string" ? display.source : undefined,
+    icon: typeof display.icon === "string" ? display.icon : undefined,
+    color: typeof display.color === "string" ? display.color : undefined,
+    priority: typeof display.priority === "string" ? display.priority : undefined,
+    metadata: isRecord(display.metadata) ? display.metadata : undefined,
+  }
 }
 
 function buildRuntimeTimelineItems(run: TraceRun): RuntimeTimelineItem[] {
@@ -549,6 +587,7 @@ function isTimelineEventSelected(event: TraceEvent, activeEventId: string): bool
 }
 
 function buildMessageView(session: TraceSession): TraceMessage[] {
+  const displayMessages = session.raw.events.flatMap((event) => displayMessageFromEvent(session, event))
   const finalEvent =
     session.raw.events.findLast((event) => event.event_type === "AgentFinishedEvent") ??
     session.raw.events.findLast((event) => event.event_type === "AgentFailedEvent")
@@ -561,7 +600,7 @@ function buildMessageView(session: TraceSession): TraceMessage[] {
       event.event_type === "LLMRespondedEvent" || event.event_type === "ToolResultEvent",
     )
     let eventIndex = 0
-    return rawMessages.flatMap((message, index) => {
+    const memoryMessages = rawMessages.flatMap((message, index) => {
       if (!isRecord(message)) return []
       const role = normalizeRole(message.role)
       const relatedEvent = role === "assistant" || role === "tool"
@@ -581,6 +620,7 @@ function buildMessageView(session: TraceSession): TraceMessage[] {
         eventId: relatedEvent?.event_id ?? finalEvent?.event_id ?? "",
       }]
     })
+    return [...memoryMessages, ...displayMessages]
   }
 
   const messages: TraceMessage[] = []
@@ -595,6 +635,13 @@ function buildMessageView(session: TraceSession): TraceMessage[] {
   }
 
   for (const event of session.raw.events) {
+    const displayMessage = displayMessageFromEvent(session, event)[0]
+    if (displayMessage) {
+      flushStreamingMessage()
+      messages.push(displayMessage)
+      continue
+    }
+
     if (event.event_type === "LLMCalledEvent" && !userAdded && Array.isArray(event.payload.messages)) {
       const userMessage = event.payload.messages.findLast((message) =>
         isRecord(message) && normalizeRole(message.role) === "user",
@@ -674,6 +721,21 @@ function buildMessageView(session: TraceSession): TraceMessage[] {
 
   flushStreamingMessage()
   return messages
+}
+
+function displayMessageFromEvent(session: TraceSession, event: RawTraceEvent): TraceMessage[] {
+  const display = getDisplayHint(event.payload)
+  if (display?.surface !== "messages") return []
+  const content = display.content ?? String(event.payload.content ?? event.payload.summary ?? "")
+  if (content.length === 0) return []
+  return [{
+    id: `${event.event_id}-display-message`,
+    role: display.role ?? "assistant",
+    content,
+    source: display.source ?? display.title ?? event.event_type,
+    at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
+    eventId: event.event_id,
+  }]
 }
 
 function buildAllSessionUsageBars(sessions: TraceSession[]): UsageBar[] {

@@ -5,6 +5,38 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-05-29
+
+EasyAgent 0.6.4 adds a small display protocol for custom trace events. SDK
+users can now persist user-defined events and tell the dashboard how to project
+those events into supported UI surfaces such as Messages and Timeline.
+
+### Added
+
+- `CustomTraceEvent` for user-defined trace events with explicit persisted
+  event types, arbitrary JSON-friendly payloads, and optional dashboard display
+  metadata.
+- `DisplayHint` helper for attaching dashboard rendering metadata to custom
+  trace events without requiring a trace store schema migration.
+- Dashboard support for `payload.display.surface == "messages"`, rendering
+  custom events in the Messages tab as chat bubbles.
+- Dashboard support for custom event `display.title` / `display.content`
+  timeline summaries and `display.surface == "hidden"` timeline hiding.
+- README and README_CN examples showing how to publish a custom event that
+  appears in the dashboard Messages view.
+
+### Changed
+
+- `TraceRecorder` now preserves a `CustomTraceEvent.event_type` value as the
+  persisted trace event type and merges its custom payload into the stored
+  event payload.
+
+### Install
+
+```bash
+pip install -U easy-agent-sdk==0.6.4
+```
+
 ## [0.6.3] - 2026-05-29
 
 EasyAgent 0.6.3 tightens the runtime observability dashboard introduced in

@@ -4,6 +4,8 @@ import pytest
 
 from easyagent import (
     ConversationWorld,
+    CustomTraceEvent,
+    DisplayHint,
     EventBus,
     LLMEntity,
     JSONLStore,
@@ -194,3 +196,45 @@ async def test_runtime_tracing_links_entity_agent_sessions():
         "RuntimeTickFinishedEvent",
         "RuntimeFinishedEvent",
     ]
+
+
+def test_custom_trace_event_persists_event_type_payload_and_display_hint():
+    store = MemoryStore()
+    recorder = TraceRecorder(store)
+
+    recorder.record(
+        CustomTraceEvent(
+            event_type="PlannerStepEvent",
+            session_id="session_custom",
+            agent_id="planner",
+            summary="Planner selected search_docs",
+            payload={"step": "search_docs"},
+            display=DisplayHint.messages(
+                "Need to inspect README and pyproject first.",
+                role="assistant",
+                title="Planner step",
+                source="planner",
+            ),
+        )
+    )
+
+    session = store.get_session("session_custom")
+    assert session is not None
+    assert session.event_count == 1
+
+    event = store.list_events("session_custom")[0]
+    assert event.event_type == "PlannerStepEvent"
+    assert event.agent_id == "planner"
+    assert event.payload["summary"] == "Planner selected search_docs"
+    assert event.payload["step"] == "search_docs"
+    assert event.payload["display"] == {
+        "surface": "messages",
+        "role": "assistant",
+        "title": "Planner step",
+        "content": "Need to inspect README and pyproject first.",
+        "source": "planner",
+        "icon": None,
+        "color": None,
+        "priority": None,
+        "metadata": {},
+    }

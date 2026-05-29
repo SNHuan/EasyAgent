@@ -61,6 +61,33 @@ easyagent dashboard
 easyagent dashboard --db path/to/traces.db --open
 ```
 
+自定义事件可以通过 `DisplayHint` 指定前端展示位置。比如下面这个事件会
+以 `PlannerStepEvent` 持久化，并在 Messages tab 中显示成 assistant 气泡：
+
+```python
+from easyagent import CustomTraceEvent, DisplayHint, EventBus, MemoryStore, TraceRecorder
+
+store = MemoryStore()
+bus = EventBus()
+TraceRecorder(store).attach(bus)
+
+await bus.publish(
+    CustomTraceEvent(
+        event_type="PlannerStepEvent",
+        session_id="sess_planner",
+        agent_id="planner",
+        summary="Planner selected search_docs",
+        payload={"step": "search_docs"},
+        display=DisplayHint.messages(
+            "Need to inspect README and pyproject first.",
+            role="assistant",
+            title="Planner step",
+            source="planner",
+        ),
+    )
+)
+```
+
 可以创建 `easyagent/config/config.yaml`，也可以直接使用 LiteLLM 支持的环境变量：
 
 ```yaml
