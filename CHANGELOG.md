@@ -5,6 +5,47 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-05-29
+
+EasyAgent 0.6.2 adds runtime-level observability on top of the existing agent
+session tracing. Runtime runs can now be inspected as a hierarchy of runtime,
+world, entity, and child agent sessions in the local dashboard.
+
+### Added
+
+- `Runtime` now emits runtime lifecycle, tick, and entity lifecycle events when
+  connected to an `EventBus`.
+- `LLMEntity` binds child agent sessions to the active runtime trace context so
+  model calls, tool events, token usage, and messages are grouped under the
+  parent runtime run.
+- `TraceRecorder` persists runtime events separately from agent session events
+  while keeping both linked by `run_id`.
+- Dashboard API responses now expose top-level `runs[]` with `world`,
+  `entities`, child `sessions`, runtime events, and aggregated token usage.
+- Dashboard session navigation now renders a compact runtime/entity/session
+  tree with independent runtime and entity expansion.
+
+### Changed
+
+- The dashboard detail view now supports runtime overview and session timeline
+  modes without forcing navigation when expanding an entity in the tree.
+- Token and event summaries follow the selected runtime or session scope.
+- Event payload inspection can show runtime metadata as well as session event
+  payloads.
+
+### Examples
+
+- `examples/16_dashboard_runtime_tree.py` generates deterministic runtime tree
+  data for UI verification.
+- `examples/17_real_runtime_tracing.py` runs real `gemini-3-flash-preview`
+  runtimes and writes trace data to a dashboard-readable SQLite database.
+
+### Install
+
+```bash
+pip install -U easy-agent-sdk==0.6.2
+```
+
 ## [0.6.1] - 2026-05-28
 
 EasyAgent 0.6.1 polishes the local dashboard experience for real streaming

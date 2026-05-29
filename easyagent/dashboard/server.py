@@ -156,16 +156,91 @@ def load_trace_payload(db_path: Path, *, limit: int = 200, offset: int = 0) -> d
         return {
             "db_path": str(db_path),
             "connected": False,
-            "sessions": [],
+            "runs": [],
         }
 
     store = SQLiteStore(db_path)
-    sessions = store.list_sessions(limit=limit, offset=offset)
+    sessions = [_session_with_events(store, session) for session in store.list_sessions(limit=limit, offset=offset)]
     return {
         "db_path": str(db_path),
         "connected": True,
-        "sessions": [_session_with_events(store, session) for session in sessions],
+        "runs": _runs_from_sessions(sessions),
     }
+
+
+def _runs_from_sessions(sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for session in sessions:
+        metadata = _metadata(session)
+        run_id = str(metadata.get("run_id") or f"run_{session['session_id']}")
+        groups.setdefault(run_id, []).append(session)
+
+    runs = [_sessions_to_run(run_id, grouped_sessions) for run_id, grouped_sessions in groups.items()]
+    return sorted(runs, key=lambda run: str(run["started_at"]), reverse=True)
+
+
+def _sessions_to_run(run_id: str, sessions: list[dict[str, Any]]) -> dict[str, Any]:
+    runtime_session = next((session for session in sessions if _metadata(session).get("trace_kind") == "runtime"), None)
+    agent_sessions = [session for session in sessions if _metadata(session).get("trace_kind") != "runtime"]
+    first = runtime_session or agent_sessions[0]
+    metadata = _metadata(first)
+    entities = _entities_from_sessions(agent_sessions)
+    visible_sessions = agent_sessions
+    run_events = runtime_session.get("events", []) if runtime_session else []
+
+    return {
+        "run_id": run_id,
+        "scope": metadata.get("run_scope") or ("runtime" if metadata.get("world") else "agent"),
+        "title": metadata.get("run_title") or metadata.get("title") or metadata.get("name") or _session_title(first),
+        "status": _aggregate_status(session["status"] for session in sessions),
+        "started_at": min(str(session["started_at"]) for session in sessions),
+        "ended_at": _aggregate_ended_at(sessions),
+        "event_count": sum(int(session.get("event_count") or 0) for session in visible_sessions) + len(run_events),
+        "token_usage": _sum_token_usage(session.get("token_usage") for session in visible_sessions),
+        "world": metadata.get("world"),
+        "entities": entities,
+        "sessions": visible_sessions,
+        "events": run_events,
+        "metadata": {
+            key: value
+            for key, value in metadata.items()
+            if key not in {"entity", "world", "trace_kind"}
+        },
+    }
+
+
+def _entities_from_sessions(sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    entity_metadata: dict[str, dict[str, Any]] = {}
+
+    for session in sessions:
+        metadata = _metadata(session)
+        entity = metadata.get("entity") if isinstance(metadata.get("entity"), dict) else {}
+        entity_id = str(entity.get("entity_id") or metadata.get("entity_id") or session.get("agent_id") or session["session_id"])
+        groups.setdefault(entity_id, []).append(session)
+        entity_metadata.setdefault(entity_id, dict(entity))
+
+    entities: list[dict[str, Any]] = []
+    for entity_id, grouped_sessions in groups.items():
+        entity = entity_metadata.get(entity_id, {})
+        entities.append(
+            {
+                "entity_id": entity_id,
+                "label": entity.get("label") or entity.get("name") or grouped_sessions[0].get("agent_id") or entity_id,
+                "kind": entity.get("kind") or "agent",
+                "status": _aggregate_status(session["status"] for session in grouped_sessions),
+                "event_count": sum(int(session.get("event_count") or 0) for session in grouped_sessions),
+                "token_usage": _sum_token_usage(session.get("token_usage") for session in grouped_sessions),
+                "sessions": grouped_sessions,
+                "metadata": {
+                    key: value
+                    for key, value in entity.items()
+                    if key not in {"entity_id", "label", "name", "kind"}
+                },
+            }
+        )
+
+    return sorted(entities, key=lambda entity: str(entity["label"]))
 
 
 def _session_with_events(store: SQLiteStore, session: SessionTrace) -> dict[str, Any]:
@@ -182,6 +257,68 @@ def _session_with_events(store: SQLiteStore, session: SessionTrace) -> dict[str,
 
 def _event_to_dict(event: EventTrace) -> dict[str, Any]:
     return event.to_dict()
+
+
+def _metadata(session: dict[str, Any]) -> dict[str, Any]:
+    metadata = session.get("metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _aggregate_status(statuses: Any) -> str:
+    values = list(statuses)
+    if "running" in values:
+        return "running"
+    if "failed" in values:
+        return "failed"
+    return "completed" if values else "running"
+
+
+def _aggregate_ended_at(sessions: list[dict[str, Any]]) -> str | None:
+    ended_values = [str(session["ended_at"]) for session in sessions if session.get("ended_at")]
+    if len(ended_values) != len(sessions):
+        return None
+    return max(ended_values) if ended_values else None
+
+
+def _sum_token_usage(items: Any) -> dict[str, int]:
+    totals = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    for usage in items:
+        if not isinstance(usage, dict):
+            continue
+        totals["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
+        totals["completion_tokens"] += int(usage.get("completion_tokens") or 0)
+        totals["total_tokens"] += int(usage.get("total_tokens") or 0)
+    return totals
+
+
+def _session_title(session: dict[str, Any]) -> str:
+    events = session.get("events", [])
+    if not isinstance(events, list):
+        return str(session.get("session_id", "Agent session"))
+
+    for event_type, payload_key, fallback in (
+        ("AgentFailedEvent", "error", "Failed session"),
+        ("ToolCalledEvent", "tool_name", "Tool call session"),
+        ("AgentFinishedEvent", "output", "Completed session"),
+        ("LLMRespondedEvent", "content", "LLM response"),
+        ("LLMStreamChunkEvent", "content", "Streaming response"),
+    ):
+        for event in events:
+            if not isinstance(event, dict) or event.get("event_type") != event_type:
+                continue
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            value = payload.get(payload_key)
+            if value:
+                return _truncate(str(value), 72)
+            return fallback
+
+    return str(session.get("session_id", "Agent session"))
+
+
+def _truncate(value: str, max_length: int) -> str:
+    return value if len(value) <= max_length else f"{value[:max_length - 1]}..."
 
 
 def _find_static_dir() -> Path | None:

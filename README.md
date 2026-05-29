@@ -51,7 +51,7 @@ asyncio.run(main())
 
 ## Local Dashboard
 
-EasyAgent can persist agent session traces to SQLite and open a local
+EasyAgent can persist agent and runtime traces to SQLite and open a local
 dashboard for logs, events, message history, and token usage:
 
 ```bash
@@ -63,6 +63,21 @@ trace store and open the browser automatically:
 
 ```bash
 easyagent dashboard --db path/to/traces.db --open
+```
+
+To preview the runtime/world/entity/session tree with deterministic demo data,
+generate a dashboard database and point the CLI at it:
+
+```bash
+python examples/16_dashboard_runtime_tree.py --replace
+easyagent dashboard --db apps/dashboard/.easyagent/runtime-tree-demo.db --open
+```
+
+To generate real runtime traces with `gemini-3-flash-preview`, run:
+
+```bash
+python examples/17_real_runtime_tracing.py --replace
+easyagent dashboard --db apps/dashboard/.easyagent/real-runtime-traces.db --open
 ```
 
 Create `easyagent/config/config.yaml` or configure LiteLLM through environment
@@ -101,6 +116,8 @@ Presets:         sequential / fanout / debate / chatroom / groupchat
 - **Schedule** — determines who acts next.
   Built-ins: `TakeTurns`, `RoundRobin`, `AllParallel`, `Reactive`, `MaxTicks`, `UntilIdle`.
 - **Runtime** — the perceive-act-apply loop wiring Entity + World + Schedule.
+  When connected to an `EventBus`, it emits runtime/tick/entity events and
+  links child agent sessions back to the same runtime run.
 
 See [docs/architecture.md](docs/architecture.md) for the full design guide.
 

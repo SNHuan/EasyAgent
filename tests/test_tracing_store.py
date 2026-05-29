@@ -3,11 +3,15 @@ from __future__ import annotations
 import pytest
 
 from easyagent import (
+    ConversationWorld,
     EventBus,
+    LLMEntity,
     JSONLStore,
     MemoryStore,
     ReactAgent,
+    Runtime,
     SQLiteStore,
+    TakeTurns,
     TraceRecorder,
 )
 from easyagent.model.schema import LLMResponse, LLMStreamChunk
@@ -140,3 +144,53 @@ async def test_jsonl_store_round_trips_trace(tmp_path):
     assert session is not None
     assert session.token_usage.completion_tokens == 2
     assert len(store.list_events(result.session.session_id)) == 4
+
+
+@pytest.mark.asyncio
+async def test_runtime_tracing_links_entity_agent_sessions():
+    store = MemoryStore()
+    bus = EventBus()
+    TraceRecorder(store).attach(bus)
+
+    entity = LLMEntity("planner", ReactAgent(model=FakeLLM(), max_iterations=2))
+    runtime = Runtime(
+        world=ConversationWorld(),
+        entities={"planner": entity},
+        schedule=TakeTurns(order=["planner"]),
+        bus=bus,
+        runtime_id="runtime_test",
+        title="Runtime test",
+    )
+
+    result = await runtime.run("hello")
+    assert result.ticks == 1
+
+    runtime_trace = store.get_session("runtime_test")
+    assert runtime_trace is not None
+    assert runtime_trace.status == "completed"
+    assert runtime_trace.metadata["trace_kind"] == "runtime"
+    assert runtime_trace.metadata["run_id"] == "runtime_test"
+    assert runtime_trace.metadata["world"]["kind"] == "ConversationWorld"
+
+    agent_sessions = [
+        session
+        for session in store.list_sessions()
+        if session.session_id != "runtime_test"
+    ]
+    assert len(agent_sessions) == 1
+    agent_trace = agent_sessions[0]
+    assert agent_trace.metadata["run_id"] == "runtime_test"
+    assert agent_trace.metadata["run_scope"] == "runtime"
+    assert agent_trace.metadata["entity"]["entity_id"] == "planner"
+    assert agent_trace.token_usage.total_tokens == 5
+
+    runtime_events = [event.event_type for event in store.list_events("runtime_test")]
+    assert runtime_events == [
+        "RuntimeStartedEvent",
+        "RuntimeTickStartedEvent",
+        "EntityStartedEvent",
+        "EntityFinishedEvent",
+        "MessageEvent",
+        "RuntimeTickFinishedEvent",
+        "RuntimeFinishedEvent",
+    ]

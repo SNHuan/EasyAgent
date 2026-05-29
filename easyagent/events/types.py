@@ -105,17 +105,56 @@ class MessageEvent(BaseEvent):
 
 @dataclass
 class RuntimeStartedEvent(BaseEvent):
+    run_id: str = ""
+    run_title: str = ""
     agent_ids: list[AgentId] = field(default_factory=list)
+    world: dict[str, Any] = field(default_factory=dict)
+    entities: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class RuntimeFinishedEvent(BaseEvent):
+    run_id: str = ""
     reason: str = ""
+    status: str = "completed"
+    ticks: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class RuntimeTickStartedEvent(BaseEvent):
+    run_id: str = ""
+    tick: int = 0
+    active_entities: list[AgentId] = field(default_factory=list)
+
+
+@dataclass
+class RuntimeTickFinishedEvent(BaseEvent):
+    run_id: str = ""
+    tick: int = 0
+    action_count: int = 0
+
+
+@dataclass
+class EntityStartedEvent(BaseEvent):
+    run_id: str = ""
+    entity_id: AgentId = ""
+    tick: int = 0
+
+
+@dataclass
+class EntityFinishedEvent(BaseEvent):
+    run_id: str = ""
+    entity_id: AgentId = ""
+    tick: int = 0
+    action_type: str = ""
 
 
 @dataclass
 class AgentStartedEvent(BaseEvent):
     agent_id: AgentId = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

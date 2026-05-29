@@ -93,7 +93,12 @@ class Agent(BaseAgent):
         if bus is not None:
             from easyagent.events import AgentStartedEvent
 
-            await bus.publish(AgentStartedEvent(agent_id=active_session.session_id))
+            await bus.publish(
+                AgentStartedEvent(
+                    agent_id=active_session.session_id,
+                    metadata=dict(active_session.metadata),
+                )
+            )
         await self.on_session_start(active_session)
         try:
             result = await self.run_session(active_session, user_input)
@@ -159,7 +164,12 @@ class Agent(BaseAgent):
         if bus is not None:
             from easyagent.events import AgentStartedEvent
 
-            await bus.publish(AgentStartedEvent(agent_id=active_session.session_id))
+            await bus.publish(
+                AgentStartedEvent(
+                    agent_id=active_session.session_id,
+                    metadata=dict(active_session.metadata),
+                )
+            )
         await self.on_session_start(active_session)
         try:
             async for chunk in self.stream_session(active_session, user_input):

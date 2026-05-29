@@ -4,11 +4,15 @@ import json from "highlight.js/lib/languages/json"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
+  ArrowLeft,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
   Database,
+  Folder,
+  FolderOpen,
   ListFilter,
   Layers3,
   MessagesSquare,
@@ -27,14 +31,6 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import traceFixture from "@/data/traces.json"
 import { cn } from "@/lib/utils"
@@ -45,6 +41,8 @@ type SessionStatus = "completed" | "failed" | "running"
 type StatusFilter = "all" | SessionStatus
 type TimeFilter = "all" | "15m" | "1h"
 type TokenUsageMode = "current" | "all"
+type DetailMode = "run" | "session"
+type TraceScope = "runtime" | "agent"
 
 type RawTokenUsage = {
   prompt_tokens?: number
@@ -74,9 +72,46 @@ type RawTraceSession = {
   events: RawTraceEvent[]
 }
 
+type RawWorldSummary = {
+  world_id?: string
+  label?: string
+  kind?: string
+  status?: string
+  summary?: string
+  metadata?: Record<string, unknown>
+}
+
+type RawEntityTrace = {
+  entity_id: string
+  label: string
+  kind?: string
+  status?: string
+  event_count?: number
+  token_usage?: RawTokenUsage
+  sessions?: RawTraceSession[]
+  metadata?: Record<string, unknown>
+}
+
+type RawTraceRun = {
+  run_id: string
+  scope: TraceScope
+  title: string
+  status: string
+  started_at: string
+  ended_at: string | null
+  event_count: number
+  token_usage: RawTokenUsage
+  world?: RawWorldSummary | null
+  entities?: RawEntityTrace[]
+  sessions?: RawTraceSession[]
+  events?: RawTraceEvent[]
+  metadata?: Record<string, unknown>
+}
+
 type TraceApiResponse = {
   db_path?: string
   connected?: boolean
+  runs?: RawTraceRun[]
   sessions?: RawTraceSession[]
 }
 
@@ -93,6 +128,7 @@ type TraceEvent = {
 
 type TraceSession = {
   id: string
+  displayId: string
   title: string
   status: SessionStatus
   model: string
@@ -108,6 +144,37 @@ type TraceSession = {
   totalTokens: number
   events: TraceEvent[]
   raw: RawTraceSession
+}
+
+type EntityTrace = {
+  id: string
+  label: string
+  kind: string
+  status: SessionStatus
+  eventCount: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  sessions: TraceSession[]
+  raw: RawEntityTrace
+}
+
+type TraceRun = {
+  id: string
+  title: string
+  scope: TraceScope
+  status: SessionStatus
+  startedAt: string
+  startedAgo: string
+  duration: string
+  eventCount: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  world: RawWorldSummary | null
+  entities: EntityTrace[]
+  sessions: TraceSession[]
+  raw: RawTraceRun
 }
 
 type MessageRole = "system" | "user" | "assistant" | "tool"
@@ -144,7 +211,7 @@ type TokenMixItem = {
   color: string
 }
 
-const rawSessions = traceFixture.sessions as unknown as RawTraceSession[]
+const rawRuns = normalizeRawRuns(traceFixture as unknown as TraceApiResponse)
 const emptySession = toTraceSession({
   session_id: "no_sessions",
   agent_id: "",
@@ -187,6 +254,93 @@ const eventColors = [
   "oklch(0.58 0.12 200)",
 ]
 
+function normalizeRawRuns(payload: TraceApiResponse): RawTraceRun[] {
+  if (payload.runs) return payload.runs
+  return (payload.sessions ?? []).map((session) => sessionToRawRun(session))
+}
+
+function sessionToRawRun(session: RawTraceSession): RawTraceRun {
+  return {
+    run_id: `run_${session.session_id}`,
+    scope: "agent",
+    title: inferSessionTitle(session),
+    status: session.status,
+    started_at: session.started_at,
+    ended_at: session.ended_at,
+    event_count: session.event_count,
+    token_usage: session.token_usage,
+    world: null,
+    entities: [
+      {
+        entity_id: session.agent_id || session.session_id,
+        label: session.agent_id || "Agent",
+        kind: "agent",
+        status: session.status,
+        event_count: session.event_count,
+        token_usage: session.token_usage,
+        sessions: [session],
+      },
+    ],
+    sessions: [session],
+    events: [],
+    metadata: session.metadata,
+  }
+}
+
+function toTraceRun(run: RawTraceRun): TraceRun {
+  const started = new Date(run.started_at)
+  const ended = run.ended_at ? new Date(run.ended_at) : null
+  const entities = (run.entities ?? []).map(toEntityTrace)
+  const sessions = run.sessions?.length
+    ? run.sessions.map(toTraceSession)
+    : entities.flatMap((entity) => entity.sessions)
+  const tokenUsage = run.token_usage ?? buildTokenTotals(sessions)
+
+  return {
+    id: run.run_id,
+    title: run.title || run.run_id,
+    scope: run.scope,
+    status: normalizeStatus(run.status),
+    startedAt: started.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+    startedAgo: formatRelativeTime(started),
+    duration: formatDuration(started, ended),
+    eventCount: run.event_count ?? sessions.reduce((total, session) => total + session.events.length, 0),
+    promptTokens: tokenUsage.prompt_tokens ?? 0,
+    completionTokens: tokenUsage.completion_tokens ?? 0,
+    totalTokens: tokenUsage.total_tokens ?? 0,
+    world: run.world ?? null,
+    entities,
+    sessions,
+    raw: run,
+  }
+}
+
+function toEntityTrace(entity: RawEntityTrace): EntityTrace {
+  const sessions = (entity.sessions ?? []).map(toTraceSession)
+  const tokenUsage = entity.token_usage ?? buildTokenTotals(sessions)
+  const status = entity.status ?? sessions.find((session) => session.status === "running")?.status ?? sessions[0]?.status ?? "running"
+
+  return {
+    id: entity.entity_id,
+    label: entity.label || entity.entity_id,
+    kind: entity.kind ?? "agent",
+    status: normalizeStatus(status),
+    eventCount: entity.event_count ?? sessions.reduce((total, session) => total + session.events.length, 0),
+    promptTokens: tokenUsage.prompt_tokens ?? 0,
+    completionTokens: tokenUsage.completion_tokens ?? 0,
+    totalTokens: tokenUsage.total_tokens ?? 0,
+    sessions,
+    raw: entity,
+  }
+}
+
 function toTraceSession(session: RawTraceSession): TraceSession {
   const started = new Date(session.started_at)
   const ended = session.ended_at ? new Date(session.ended_at) : null
@@ -200,7 +354,8 @@ function toTraceSession(session: RawTraceSession): TraceSession {
   )
 
   return {
-    id: formatSessionId(session.session_id),
+    id: session.session_id,
+    displayId: formatSessionId(session.session_id),
     title: inferSessionTitle(session),
     status: normalizeStatus(session.status),
     model,
@@ -654,7 +809,8 @@ function formatArguments(value: unknown): string {
 }
 
 function formatSessionId(id: string): string {
-  return `sess_${id.slice(0, 8)}`
+  if (id.length <= 14) return `sess_${id}`
+  return `sess_${id.slice(0, 6)}_${id.slice(-6)}`
 }
 
 function formatActor(id: string): string {
@@ -711,13 +867,17 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function App() {
-  const [rawSessionData, setRawSessionData] = useState<RawTraceSession[]>(rawSessions)
+  const [rawRunData, setRawRunData] = useState<RawTraceRun[]>(rawRuns)
   const [filterNow] = useState(() => Date.now())
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [modelFilter, setModelFilter] = useState("all")
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all")
   const [tokenUsageMode, setTokenUsageMode] = useState<TokenUsageMode>("current")
+  const [selectedRunId, setSelectedRunId] = useState("")
+  const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(() => new Set())
+  const [expandedEntityIds, setExpandedEntityIds] = useState<Set<string>>(() => new Set())
+  const [detailMode, setDetailMode] = useState<DetailMode>("run")
   const [selectedId, setSelectedId] = useState("")
   const [activeEventId, setActiveEventId] = useState("")
   const [activeMessageId, setActiveMessageId] = useState("")
@@ -729,12 +889,13 @@ function App() {
   const filtersMenuRef = useRef<HTMLDivElement>(null)
   const sectionRef = useRef<HTMLElement>(null)
   const [columns, setColumns] = useState({ sessions: 420, inspector: 430 })
-  const sessionRows = useMemo(() => rawSessionData.map(toTraceSession), [rawSessionData])
+  const runRows = useMemo(() => rawRunData.map(toTraceRun), [rawRunData])
+  const sessionRows = useMemo(() => runRows.flatMap((run) => run.sessions), [runRows])
   const availableModels = useMemo(() => Array.from(new Set(sessionRows.map((session) => session.model))), [sessionRows])
 
   function applyTracePayload(payload: TraceApiResponse) {
     const nextDbPath = payload.db_path ?? "unknown"
-    setRawSessionData(payload.sessions ?? [])
+    setRawRunData(normalizeRawRuns(payload))
     setDbPath(nextDbPath)
     setDbConnected(Boolean(payload.connected))
   }
@@ -813,8 +974,34 @@ function App() {
     })
   }, [filterNow, modelFilter, sessionRows, statusFilter, timeFilter])
 
+  const filteredSessionIds = useMemo(
+    () => new Set(filteredSessions.map((session) => session.id)),
+    [filteredSessions],
+  )
+  const filteredRuns = useMemo(() => {
+    return runRows
+      .map((run) => {
+        const entities = run.entities
+          .map((entity) => ({
+            ...entity,
+            sessions: entity.sessions.filter((session) => filteredSessionIds.has(session.id)),
+          }))
+          .filter((entity) => entity.sessions.length > 0)
+        const sessions = run.sessions.filter((session) => filteredSessionIds.has(session.id))
+        return { ...run, entities, sessions }
+      })
+      .filter((run) => run.sessions.length > 0)
+  }, [filteredSessionIds, runRows])
+
+  const selectedRun =
+    runRows.find((run) => run.id === selectedRunId) ??
+    runRows.find((run) => run.sessions.some((session) => session.id === selectedId)) ??
+    runRows[0]
   const selectedSession =
-    sessionRows.find((session) => session.id === selectedId) ?? sessionRows[0] ?? emptySession
+    selectedRun?.sessions.find((session) => session.id === selectedId) ??
+    selectedRun?.sessions[0] ??
+    sessionRows[0] ??
+    emptySession
   const timelineEvents = useMemo(() => buildTimelineEvents(selectedSession.events), [selectedSession])
   const activeEvent =
     selectedSession.events.find((event) => event.id === activeEventId) ??
@@ -824,17 +1011,73 @@ function App() {
   const maxHourlyTokens = Math.max(1, ...usageBars.map((bucket) => bucket.totalTokens))
   const allTokenUsage = buildTokenTotals(sessionRows)
   const currentTokenUsage: RawTokenUsage = {
-    prompt_tokens: selectedSession.promptTokens,
-    completion_tokens: selectedSession.completionTokens,
-    total_tokens: selectedSession.totalTokens,
+    prompt_tokens: detailMode === "run" && selectedRun ? selectedRun.promptTokens : selectedSession.promptTokens,
+    completion_tokens: detailMode === "run" && selectedRun ? selectedRun.completionTokens : selectedSession.completionTokens,
+    total_tokens: detailMode === "run" && selectedRun ? selectedRun.totalTokens : selectedSession.totalTokens,
   }
   const displayedTokenUsage = tokenUsageMode === "all" ? allTokenUsage : currentTokenUsage
   const tokenMix = buildTokenMix(currentTokenUsage)
   const eventBreakdown = buildEventBreakdown(selectedSession)
-  const highlightedPayload = highlightJson(activeEvent?.payload ?? {})
+  const inspectorPayload = detailMode === "run" && selectedRun
+    ? {
+        run_id: selectedRun.id,
+        scope: selectedRun.scope,
+        status: selectedRun.status,
+        world: selectedRun.world,
+        entities: selectedRun.raw.entities ?? [],
+        metadata: selectedRun.raw.metadata ?? {},
+      }
+    : activeEvent?.payload ?? {}
+  const inspectorLabel = detailMode === "run" && selectedRun ? `${selectedRun.scope} run` : activeEvent?.type ?? "-"
+  const highlightedPayload = highlightJson(inspectorPayload)
 
   const messages = buildMessageView(selectedSession)
   const selectedMessageId = activeMessageId || messages[0]?.id || ""
+
+  function openRun(run: TraceRun) {
+    setSelectedRunId(run.id)
+    setSelectedId(run.sessions[0]?.id ?? "")
+    setDetailMode("run")
+    setActiveEventId("")
+    setActiveMessageId("")
+    setExpandedRunIds((current) => {
+      const next = new Set(current)
+      if (next.has(run.id)) {
+        next.delete(run.id)
+      } else {
+        next.add(run.id)
+      }
+      return next
+    })
+  }
+
+  function toggleEntity(run: TraceRun, entity: EntityTrace) {
+    const key = treeEntityKey(run.id, entity.id)
+    setExpandedEntityIds((current) => {
+      const next = new Set(current)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
+
+  function openSession(run: TraceRun, session: TraceSession) {
+    setSelectedRunId(run.id)
+    setSelectedId(session.id)
+    setDetailMode("session")
+    setActiveEventId(session.events[0]?.id ?? "")
+    setActiveMessageId("")
+    setExpandedRunIds((current) => new Set(current).add(run.id))
+    const entity = run.entities.find((candidate) =>
+      candidate.sessions.some((candidateSession) => candidateSession.id === session.id),
+    )
+    if (entity) {
+      setExpandedEntityIds((current) => new Set(current).add(treeEntityKey(run.id, entity.id)))
+    }
+  }
 
   function startColumnResize(edge: "sessions" | "inspector", event: PointerEvent<HTMLButtonElement>) {
     const section = sectionRef.current
@@ -1004,7 +1247,7 @@ function App() {
             <div className="min-h-0">
               <Card className="panel-card flex h-full min-h-0 rounded-none border-0 shadow-none ring-0">
                 <CardHeader className="shrink-0 border-b px-4 py-4">
-                  <CardTitle className="text-xl">Sessions</CardTitle>
+                  <CardTitle className="text-xl">Runs</CardTitle>
                   <CardAction ref={filtersMenuRef} className="relative flex items-center gap-2">
                     <button
                       className={cn(
@@ -1017,7 +1260,6 @@ function App() {
                     >
                       <ListFilter data-icon="inline-start" />
                       Filter
-                      <Badge variant="secondary">{filteredSessions.length}</Badge>
                     </button>
 
                     {filtersOpen && (
@@ -1069,39 +1311,16 @@ function App() {
                 </CardHeader>
                 <CardContent className="min-h-0 flex-1 overflow-hidden px-0 py-0">
                   <ScrollArea className="h-full">
-                    <Table className="text-[13px]">
-                      <TableHeader className="sticky top-0 z-10 bg-background">
-                        <TableRow>
-                          <TableHead className="pl-4">Session ID</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Latency</TableHead>
-                          <TableHead className="pr-4 text-right">Started</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredSessions.map((session) => (
-                          <TableRow
-                            key={session.id}
-                            className={cn(
-                              "cursor-pointer",
-                              selectedSession.id === session.id && "selected-row",
-                            )}
-                            onClick={() => {
-                              setSelectedId(session.id)
-                              setActiveEventId(session.events[0]?.id ?? "")
-                              setActiveMessageId("")
-                            }}
-                          >
-                            <TableCell className="pl-4 font-mono text-xs">{session.id}</TableCell>
-                            <TableCell>
-                              <Badge className={statusClass[session.status]}>{session.status}</Badge>
-                            </TableCell>
-                            <TableCell>{session.latency}</TableCell>
-                            <TableCell className="pr-4 text-right">{session.startedAgo}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                    <TraceTree
+                      runs={filteredRuns}
+                      expandedRunIds={expandedRunIds}
+                      expandedEntityIds={expandedEntityIds}
+                      selectedRunId={selectedRun?.id ?? ""}
+                      selectedSessionId={detailMode === "session" ? selectedSession.id : ""}
+                      onOpenRun={openRun}
+                      onToggleEntity={toggleEntity}
+                      onOpenSession={openSession}
+                    />
                   </ScrollArea>
                 </CardContent>
               </Card>
@@ -1111,9 +1330,19 @@ function App() {
 
             <div className="min-h-0">
               <Card className="panel-card flex h-full min-h-0 rounded-none border-0 shadow-none ring-0">
+                {detailMode === "session" ? (
+                  <>
                 <CardHeader className="shrink-0 border-b px-5 py-4">
                   <div className="flex items-center gap-3">
-                    <CardTitle className="font-mono text-xl">{selectedSession.id}</CardTitle>
+                    <button
+                      className="flex size-8 items-center justify-center rounded-md border text-muted-foreground transition hover:bg-muted/70 hover:text-foreground"
+                      type="button"
+                      aria-label="Back to run overview"
+                      onClick={() => setDetailMode("run")}
+                    >
+                      <ArrowLeft data-icon="inline-start" />
+                    </button>
+                    <CardTitle className="font-mono text-xl">{selectedSession.displayId}</CardTitle>
                     <Badge variant="outline" className={statusClass[selectedSession.status]}>
                       {selectedSession.status}
                     </Badge>
@@ -1190,6 +1419,16 @@ function App() {
                     </TabsContent>
                   </Tabs>
                 </CardContent>
+                  </>
+                ) : (
+                  <RunOverview
+                    run={selectedRun}
+                    selectedSessionId={selectedSession.id}
+                    onOpenSession={(session) => {
+                      if (selectedRun) openSession(selectedRun, session)
+                    }}
+                  />
+                )}
               </Card>
             </div>
 
@@ -1312,7 +1551,7 @@ function App() {
                   <CardHeader>
                     <CardTitle>Event Payload</CardTitle>
                     <CardAction>
-                      <Badge variant="outline">{activeEvent?.type ?? "-"}</Badge>
+                      <Badge variant="outline">{inspectorLabel}</Badge>
                     </CardAction>
                   </CardHeader>
                   <CardContent className="flex min-h-0 flex-1 flex-col">
@@ -1339,6 +1578,230 @@ function MetaCell({ label, value }: { label: string; value: string }) {
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="truncate text-sm">{value}</div>
     </div>
+  )
+}
+
+function treeEntityKey(runId: string, entityId: string): string {
+  return `${runId}:${entityId}`
+}
+
+function TraceTree({
+  runs,
+  expandedRunIds,
+  expandedEntityIds,
+  selectedRunId,
+  selectedSessionId,
+  onOpenRun,
+  onToggleEntity,
+  onOpenSession,
+}: {
+  runs: TraceRun[]
+  expandedRunIds: Set<string>
+  expandedEntityIds: Set<string>
+  selectedRunId: string
+  selectedSessionId: string
+  onOpenRun: (run: TraceRun) => void
+  onToggleEntity: (run: TraceRun, entity: EntityTrace) => void
+  onOpenSession: (run: TraceRun, session: TraceSession) => void
+}) {
+  if (runs.length === 0) {
+    return (
+      <div className="px-4 py-8 text-sm text-muted-foreground">
+        No runs match the current filters.
+      </div>
+    )
+  }
+
+  return (
+    <div className="trace-tree py-2">
+      {runs.map((run) => {
+        const selected = run.id === selectedRunId && !selectedSessionId
+        const expanded = expandedRunIds.has(run.id)
+        return (
+          <div key={run.id} className="trace-tree-run">
+            <button
+              className={cn("trace-tree-row trace-tree-row-run", selected && "trace-tree-row-active")}
+              type="button"
+              onClick={() => onOpenRun(run)}
+            >
+              <ChevronRight
+                className={cn("trace-tree-chevron", expanded && "trace-tree-chevron-open")}
+                data-icon="inline-start"
+              />
+              {run.id === selectedRunId ? (
+                <FolderOpen className="trace-tree-icon trace-tree-icon-run" data-icon="inline-start" />
+              ) : (
+                <Folder className="trace-tree-icon trace-tree-icon-run" data-icon="inline-start" />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{run.title}</span>
+                <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                  {run.scope} · {run.startedAgo}
+                </span>
+              </span>
+              <span className="trace-tree-count">{run.sessions.length}</span>
+              <span className={cn("trace-tree-status", `trace-tree-status-${run.status}`)} />
+            </button>
+
+            {expanded && (
+              <div className="trace-tree-children">
+                {run.entities.map((entity) => {
+                  const entityExpanded = expandedEntityIds.has(treeEntityKey(run.id, entity.id))
+                  return (
+                  <div key={`${run.id}-${entity.id}`} className="trace-tree-entity">
+                    <button
+                      className="trace-tree-row trace-tree-row-entity"
+                      type="button"
+                      onClick={() => onToggleEntity(run, entity)}
+                    >
+                      <ChevronRight
+                        className={cn("trace-tree-chevron trace-tree-chevron-entity", entityExpanded && "trace-tree-chevron-open")}
+                        data-icon="inline-start"
+                      />
+                      <span className={cn("trace-tree-entity-dot", `trace-tree-status-${entity.status}`)} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">{entity.label}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          {entity.kind} · {entity.eventCount} events
+                        </span>
+                      </span>
+                      <span className="trace-tree-count">{entity.sessions.length}</span>
+                    </button>
+
+                    {entityExpanded && (
+                    <div className="trace-tree-sessions">
+                      {entity.sessions.map((session) => (
+                        <button
+                          key={`${run.id}-${entity.id}-${session.id}`}
+                          className={cn(
+                            "trace-tree-row trace-tree-row-session",
+                            session.id === selectedSessionId && "trace-tree-row-active",
+                          )}
+                          type="button"
+                          onClick={() => onOpenSession(run, session)}
+                        >
+                          <PlayCircle className="trace-tree-icon trace-tree-icon-session" data-icon="inline-start" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm">{session.title}</span>
+                            <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                              {session.displayId}
+                            </span>
+                          </span>
+                          <span className="font-mono text-xs text-muted-foreground">{session.latency}</span>
+                        </button>
+                      ))}
+                    </div>
+                    )}
+                  </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function RunOverview({
+  run,
+  selectedSessionId,
+  onOpenSession,
+}: {
+  run: TraceRun | undefined
+  selectedSessionId: string
+  onOpenSession: (session: TraceSession) => void
+}) {
+  if (!run) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        No trace run selected.
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <CardHeader className="shrink-0 border-b px-5 py-4">
+        <div className="flex items-center gap-3">
+          <CardTitle className="truncate text-xl">{run.title}</CardTitle>
+          <Badge variant="outline" className={statusClass[run.status]}>
+            {run.status}
+          </Badge>
+          <Badge variant="secondary" className="capitalize">
+            {run.scope} run
+          </Badge>
+        </div>
+        <div className="mt-4 grid grid-cols-5 gap-4 text-sm">
+          <MetaCell label="Started" value={run.startedAt} />
+          <MetaCell label="Duration" value={run.duration} />
+          <MetaCell label="Entities" value={String(run.entities.length)} />
+          <MetaCell label="Sessions" value={String(run.sessions.length)} />
+          <MetaCell label="Events" value={String(run.eventCount)} />
+        </div>
+      </CardHeader>
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 px-5 py-4">
+        <div className="runtime-overview-grid">
+          <div className="runtime-card">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">World</div>
+            <div className="mt-2 text-lg font-semibold">
+              {run.world?.label ?? run.world?.world_id ?? "Agent-only run"}
+            </div>
+            <div className="mt-1 text-sm text-muted-foreground">
+              {run.world?.summary ?? "No world context has been attached to this run yet."}
+            </div>
+          </div>
+          <div className="runtime-card">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Usage</div>
+            <div className="mt-2 text-lg font-semibold">{run.totalTokens.toLocaleString()} tokens</div>
+            <div className="mt-1 text-sm text-muted-foreground">
+              {run.promptTokens.toLocaleString()} input · {run.completionTokens.toLocaleString()} output
+            </div>
+          </div>
+        </div>
+
+        <ScrollArea className="min-h-0 flex-1 pr-2">
+          <div className="grid gap-3 pb-2">
+            {run.entities.map((entity) => (
+              <div key={entity.id} className="runtime-entity-card">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{entity.label}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {entity.kind} · {entity.eventCount} events · {entity.totalTokens.toLocaleString()} tokens
+                    </div>
+                  </div>
+                  <Badge className={statusClass[entity.status]}>{entity.status}</Badge>
+                </div>
+                <div className="mt-3 grid gap-2">
+                  {entity.sessions.map((session) => (
+                    <button
+                      key={session.id}
+                      className={cn(
+                        "runtime-session-row",
+                        session.id === selectedSessionId && "runtime-session-row-active",
+                      )}
+                      type="button"
+                      onClick={() => onOpenSession(session)}
+                    >
+                      <span className="min-w-0 flex-1 text-left">
+                        <span className="block truncate font-medium">{session.title}</span>
+                        <span className="block truncate font-mono text-xs text-muted-foreground">
+                          {session.displayId} · {session.model}
+                        </span>
+                      </span>
+                      <span className="text-sm text-muted-foreground">{session.startedAgo}</span>
+                      <span className="font-mono text-sm">{session.totalTokens.toLocaleString()}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      </CardContent>
+    </>
   )
 }
 

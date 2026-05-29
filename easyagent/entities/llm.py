@@ -9,7 +9,7 @@ World says it should see.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from easyagent.core.types import Action, MessagesSlice, Perception, Speak
 
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from easyagent.agent.agent import Agent
     from easyagent.agent.session import AgentSession
     from easyagent.context.base import BaseContext
+    from easyagent.events.bus import EventBus
 
 __all__ = ["LLMEntity"]
 
@@ -35,6 +36,8 @@ class LLMEntity:
         self._agent = agent
         self._formatter = formatter
         self._session: AgentSession | None = None
+        self._runtime_trace_context: dict[str, Any] = {}
+        self._runtime_bus: EventBus | None = None
 
     @property
     def id(self) -> str:
@@ -75,18 +78,66 @@ class LLMEntity:
         session.loop_state.clear()
 
         from easyagent.agent.session import LoopStepResult
+        from easyagent.agent.agent import _serialize_session_messages
+        from easyagent.events import AgentFailedEvent, AgentFinishedEvent, AgentStartedEvent
 
-        result: LoopStepResult = await self._agent.step(session)
-        session.loop_steps.append(result)
-        while not result.done:
-            result = await self._agent.step(session)
+        if session.event_bus is not None and not session.loop_state.get("__trace_started__"):
+            await session.event_bus.publish(
+                AgentStartedEvent(agent_id=session.session_id, metadata=dict(session.metadata))
+            )
+            session.loop_state["__trace_started__"] = True
+
+        try:
+            result: LoopStepResult = await self._agent.step(session)
             session.loop_steps.append(result)
+            while not result.done:
+                result = await self._agent.step(session)
+                session.loop_steps.append(result)
+        except Exception as exc:
+            if session.event_bus is not None:
+                await session.event_bus.publish(
+                    AgentFailedEvent(
+                        agent_id=session.session_id,
+                        error=str(exc),
+                        messages=_serialize_session_messages(session.get_all_messages()),
+                    )
+                )
+            raise
 
         output = result.output or session.final_output or ""
         if not output.strip():
             return None
 
+        if session.event_bus is not None:
+            await session.event_bus.publish(
+                AgentFinishedEvent(
+                    agent_id=session.session_id,
+                    output=output,
+                    messages=_serialize_session_messages(session.get_all_messages()),
+                )
+            )
+
         return Speak(content=output)
+
+    def bind_runtime_context(
+        self,
+        *,
+        run_id: str,
+        run_title: str,
+        world: dict[str, object],
+        entity: dict[str, object],
+        bus: "EventBus | None",
+    ) -> None:
+        self._runtime_bus = bus
+        self._runtime_trace_context = {
+            "run_id": run_id,
+            "run_scope": "runtime",
+            "run_title": run_title,
+            "world": world,
+            "entity": entity,
+        }
+        if self._session is not None:
+            self._apply_runtime_trace_context(self._session)
 
     def _ensure_session(self) -> "AgentSession":
         if self._session is None:
@@ -96,4 +147,11 @@ class LLMEntity:
             if context is None:
                 context = MultiAgentFormatter(self_name=self._id)
             self._session = self._agent.create_session(context=context)
+            self._apply_runtime_trace_context(self._session)
         return self._session
+
+    def _apply_runtime_trace_context(self, session: "AgentSession") -> None:
+        if self._runtime_bus is not None:
+            session.event_bus = self._runtime_bus
+        if self._runtime_trace_context:
+            session.metadata.update(self._runtime_trace_context)

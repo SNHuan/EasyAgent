@@ -9,8 +9,15 @@ from easyagent.events import (
     AgentFinishedEvent,
     AgentStartedEvent,
     BaseEvent,
+    EntityFinishedEvent,
+    EntityStartedEvent,
     EventBus,
     LLMRespondedEvent,
+    MessageEvent,
+    RuntimeFinishedEvent,
+    RuntimeStartedEvent,
+    RuntimeTickFinishedEvent,
+    RuntimeTickStartedEvent,
 )
 from easyagent.tracing.schema import EventTrace, SessionTrace
 
@@ -36,10 +43,19 @@ class TraceRecorder:
         trace = event_to_trace(event)
         session = self._ensure_session(trace)
 
-        if isinstance(event, AgentStartedEvent):
+        if isinstance(event, RuntimeStartedEvent):
+            session.status = "running"
+            session.started_at = event.timestamp
+            session.agent_id = "runtime"
+            session.metadata.update(_runtime_metadata(event))
+        elif isinstance(event, RuntimeFinishedEvent):
+            session.status = event.status
+            session.ended_at = event.timestamp
+        elif isinstance(event, AgentStartedEvent):
             session.status = "running"
             session.started_at = event.timestamp
             session.agent_id = event.agent_id or session.agent_id
+            session.metadata.update(event.metadata)
         elif isinstance(event, AgentFinishedEvent):
             session.status = "completed"
             session.ended_at = event.timestamp
@@ -87,11 +103,40 @@ def event_to_trace(event: BaseEvent) -> EventTrace:
 
 
 def _session_id(event: BaseEvent, payload: dict[str, Any]) -> str:
-    for key in ("session_id", "agent_id", "sender"):
+    metadata = payload.get("metadata")
+    if isinstance(event, _RUNTIME_EVENT_TYPES):
+        value = payload.get("run_id")
+        if value:
+            return str(value)
+    if isinstance(event, MessageEvent) and isinstance(metadata, dict) and metadata.get("run_id"):
+        return str(metadata["run_id"])
+    for key in ("session_id", "agent_id", "sender", "run_id"):
         value = payload.get(key)
         if value:
             return str(value)
     return event.event_id
+
+
+def _runtime_metadata(event: RuntimeStartedEvent) -> dict[str, Any]:
+    return {
+        "trace_kind": "runtime",
+        "run_id": event.run_id,
+        "run_scope": "runtime",
+        "run_title": event.run_title,
+        "world": event.world,
+        "entities": event.entities,
+        **event.metadata,
+    }
+
+
+_RUNTIME_EVENT_TYPES = (
+    RuntimeStartedEvent,
+    RuntimeFinishedEvent,
+    RuntimeTickStartedEvent,
+    RuntimeTickFinishedEvent,
+    EntityStartedEvent,
+    EntityFinishedEvent,
+)
 
 
 def _event_payload(event: BaseEvent) -> dict[str, Any]:
