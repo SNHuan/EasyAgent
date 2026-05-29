@@ -42,6 +42,7 @@ type StatusFilter = "all" | SessionStatus
 type TimeFilter = "all" | "15m" | "1h"
 type TokenUsageMode = "current" | "all"
 type DetailMode = "run" | "session"
+type RunTab = "overview" | "timeline"
 type TraceScope = "runtime" | "agent"
 
 type RawTokenUsage = {
@@ -174,8 +175,24 @@ type TraceRun = {
   world: RawWorldSummary | null
   entities: EntityTrace[]
   sessions: TraceSession[]
+  events: TraceEvent[]
   raw: RawTraceRun
 }
+
+type RuntimeTimelineItem =
+  | {
+      id: string
+      kind: "event"
+      timestamp: string
+      event: TraceEvent
+    }
+  | {
+      id: string
+      kind: "session"
+      timestamp: string
+      session: TraceSession
+      entity: EntityTrace | undefined
+    }
 
 type MessageRole = "system" | "user" | "assistant" | "tool"
 
@@ -295,6 +312,9 @@ function toTraceRun(run: RawTraceRun): TraceRun {
     ? run.sessions.map(toTraceSession)
     : entities.flatMap((entity) => entity.sessions)
   const tokenUsage = run.token_usage ?? buildTokenTotals(sessions)
+  const events = (run.events ?? []).map((event, index) =>
+    toTraceEvent(event, run.started_at, run.events?.[index - 1]?.timestamp),
+  )
 
   return {
     id: run.run_id,
@@ -318,6 +338,7 @@ function toTraceRun(run: RawTraceRun): TraceRun {
     world: run.world ?? null,
     entities,
     sessions,
+    events,
     raw: run,
   }
 }
@@ -494,6 +515,31 @@ function buildTimelineEvents(events: TraceEvent[]): TraceEvent[] {
 
   flushStreamGroup()
   return timelineEvents
+}
+
+function buildRuntimeTimelineItems(run: TraceRun): RuntimeTimelineItem[] {
+  const sessionEntity = new Map<string, EntityTrace>()
+  for (const entity of run.entities) {
+    for (const session of entity.sessions) {
+      sessionEntity.set(session.id, entity)
+    }
+  }
+
+  return [
+    ...run.events.map((event) => ({
+      id: `event-${event.id}`,
+      kind: "event" as const,
+      timestamp: String(event.payload.timestamp ?? run.raw.started_at),
+      event,
+    })),
+    ...run.sessions.map((session) => ({
+      id: `session-${session.id}`,
+      kind: "session" as const,
+      timestamp: session.raw.started_at,
+      session,
+      entity: sessionEntity.get(session.id),
+    })),
+  ].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime())
 }
 
 function isTimelineEventSelected(event: TraceEvent, activeEventId: string): boolean {
@@ -878,7 +924,9 @@ function App() {
   const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(() => new Set())
   const [expandedEntityIds, setExpandedEntityIds] = useState<Set<string>>(() => new Set())
   const [detailMode, setDetailMode] = useState<DetailMode>("run")
+  const [runTab, setRunTab] = useState<RunTab>("overview")
   const [selectedId, setSelectedId] = useState("")
+  const [activeRunEventId, setActiveRunEventId] = useState("")
   const [activeEventId, setActiveEventId] = useState("")
   const [activeMessageId, setActiveMessageId] = useState("")
   const [dbMenuOpen, setDbMenuOpen] = useState(false)
@@ -1007,6 +1055,9 @@ function App() {
     selectedSession.events.find((event) => event.id === activeEventId) ??
     timelineEvents.find((event) => event.id === activeEventId) ??
     selectedSession.events[0]
+  const activeRunEvent =
+    selectedRun?.events.find((event) => event.id === activeRunEventId) ??
+    selectedRun?.events[0]
   const usageBars = buildAllSessionUsageBars(sessionRows)
   const maxHourlyTokens = Math.max(1, ...usageBars.map((bucket) => bucket.totalTokens))
   const allTokenUsage = buildTokenTotals(sessionRows)
@@ -1019,16 +1070,20 @@ function App() {
   const tokenMix = buildTokenMix(currentTokenUsage)
   const eventBreakdown = buildEventBreakdown(selectedSession)
   const inspectorPayload = detailMode === "run" && selectedRun
-    ? {
-        run_id: selectedRun.id,
-        scope: selectedRun.scope,
-        status: selectedRun.status,
-        world: selectedRun.world,
-        entities: selectedRun.raw.entities ?? [],
-        metadata: selectedRun.raw.metadata ?? {},
-      }
+    ? activeRunEvent
+      ? activeRunEvent.payload
+      : {
+          run_id: selectedRun.id,
+          scope: selectedRun.scope,
+          status: selectedRun.status,
+          world: selectedRun.world,
+          entities: selectedRun.raw.entities ?? [],
+          metadata: selectedRun.raw.metadata ?? {},
+        }
     : activeEvent?.payload ?? {}
-  const inspectorLabel = detailMode === "run" && selectedRun ? `${selectedRun.scope} run` : activeEvent?.type ?? "-"
+  const inspectorLabel = detailMode === "run" && selectedRun
+    ? activeRunEvent?.type ?? `${selectedRun.scope} run`
+    : activeEvent?.type ?? "-"
   const highlightedPayload = highlightJson(inspectorPayload)
 
   const messages = buildMessageView(selectedSession)
@@ -1038,6 +1093,7 @@ function App() {
     setSelectedRunId(run.id)
     setSelectedId(run.sessions[0]?.id ?? "")
     setDetailMode("run")
+    setActiveRunEventId(run.events[0]?.id ?? "")
     setActiveEventId("")
     setActiveMessageId("")
     setExpandedRunIds((current) => {
@@ -1068,6 +1124,7 @@ function App() {
     setSelectedRunId(run.id)
     setSelectedId(session.id)
     setDetailMode("session")
+    setActiveRunEventId("")
     setActiveEventId(session.events[0]?.id ?? "")
     setActiveMessageId("")
     setExpandedRunIds((current) => new Set(current).add(run.id))
@@ -1370,13 +1427,11 @@ function App() {
 
                     <TabsContent value="timeline" className="min-h-0 flex-1">
                       <ScrollArea className="h-full pr-2">
-                        <div className="relative flex flex-col">
-                          {timelineEvents.map((event, index) => (
+                        <div className="session-timeline relative flex flex-col">
+                          {timelineEvents.map((event) => (
                             <TimelineEvent
                               key={event.id}
                               event={event}
-                              isFirst={index === 0}
-                              isLast={index === timelineEvents.length - 1}
                               selected={isTimelineEventSelected(event, activeEventId)}
                               onClick={() => {
                                 setActiveEventId(event.id)
@@ -1423,7 +1478,11 @@ function App() {
                 ) : (
                   <RunOverview
                     run={selectedRun}
+                    activeTab={runTab}
+                    activeRunEventId={activeRunEvent?.id ?? ""}
                     selectedSessionId={selectedSession.id}
+                    onTabChange={setRunTab}
+                    onSelectRunEvent={(event) => setActiveRunEventId(event.id)}
                     onOpenSession={(session) => {
                       if (selectedRun) openSession(selectedRun, session)
                     }}
@@ -1502,17 +1561,21 @@ function App() {
                     ) : (
                       <>
                         <div className="grid h-32 grid-cols-12 items-end gap-1.5 pt-8">
-                          {usageBars.map((bucket) => {
+                          {usageBars.map((bucket, index) => {
                             const promptHeight = (bucket.promptTokens / maxHourlyTokens) * 100
                             const completionHeight = (bucket.completionTokens / maxHourlyTokens) * 100
                             return (
                               <div
                                 key={bucket.key}
-                                className="usage-bar relative h-full rounded-sm bg-muted/50"
+                                className={cn(
+                                  "usage-bar relative h-full rounded-sm bg-muted/50",
+                                  index === 0 && "usage-bar-start",
+                                  index === usageBars.length - 1 && "usage-bar-end",
+                                )}
                                 tabIndex={0}
                                 aria-label={`${bucket.hour}, ${bucket.totalTokens} total tokens`}
                               >
-                                <div className="usage-tooltip pointer-events-none absolute left-1/2 bottom-full z-20 mb-2 w-max -translate-x-1/2 rounded-md border bg-background px-2.5 py-2 text-left text-[11px] shadow-lg">
+                                <div className="usage-tooltip pointer-events-none absolute bottom-full z-20 mb-2 w-max rounded-md border bg-background px-2.5 py-2 text-left text-[11px] shadow-lg">
                                   <div className="mb-1 font-mono font-medium text-foreground">{bucket.hour}:00</div>
                                   <div className="text-blue-600">Input {bucket.promptTokens.toLocaleString()}</div>
                                   <div className="text-emerald-600">
@@ -1706,11 +1769,19 @@ function TraceTree({
 
 function RunOverview({
   run,
+  activeTab,
+  activeRunEventId,
   selectedSessionId,
+  onTabChange,
+  onSelectRunEvent,
   onOpenSession,
 }: {
   run: TraceRun | undefined
+  activeTab: RunTab
+  activeRunEventId: string
   selectedSessionId: string
+  onTabChange: (tab: RunTab) => void
+  onSelectRunEvent: (event: TraceEvent) => void
   onOpenSession: (session: TraceSession) => void
 }) {
   if (!run) {
@@ -1741,68 +1812,179 @@ function RunOverview({
           <MetaCell label="Events" value={String(run.eventCount)} />
         </div>
       </CardHeader>
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 px-5 py-4">
-        <div className="runtime-overview-grid">
-          <div className="runtime-card">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">World</div>
-            <div className="mt-2 text-lg font-semibold">
-              {run.world?.label ?? run.world?.world_id ?? "Agent-only run"}
-            </div>
-            <div className="mt-1 text-sm text-muted-foreground">
-              {run.world?.summary ?? "No world context has been attached to this run yet."}
-            </div>
-          </div>
-          <div className="runtime-card">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Usage</div>
-            <div className="mt-2 text-lg font-semibold">{run.totalTokens.toLocaleString()} tokens</div>
-            <div className="mt-1 text-sm text-muted-foreground">
-              {run.promptTokens.toLocaleString()} input · {run.completionTokens.toLocaleString()} output
-            </div>
-          </div>
-        </div>
+      <CardContent className="flex min-h-0 flex-1 px-5 py-4">
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => onTabChange(value as RunTab)}
+          className="flex min-h-0 flex-1 flex-col gap-4"
+        >
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="timeline">Timeline {run.events.length + run.sessions.length}</TabsTrigger>
+          </TabsList>
 
-        <ScrollArea className="min-h-0 flex-1 pr-2">
-          <div className="grid gap-3 pb-2">
-            {run.entities.map((entity) => (
-              <div key={entity.id} className="runtime-entity-card">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{entity.label}</div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      {entity.kind} · {entity.eventCount} events · {entity.totalTokens.toLocaleString()} tokens
-                    </div>
+          <TabsContent value="overview" className="min-h-0 flex-1">
+            <div className="flex h-full min-h-0 flex-col gap-4">
+              <div className="runtime-overview-grid">
+                <div className="runtime-card">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">World</div>
+                  <div className="mt-2 text-lg font-semibold">
+                    {run.world?.label ?? run.world?.world_id ?? "Agent-only run"}
                   </div>
-                  <Badge className={statusClass[entity.status]}>{entity.status}</Badge>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {run.world?.summary ?? "No world context has been attached to this run yet."}
+                  </div>
                 </div>
-                <div className="mt-3 grid gap-2">
-                  {entity.sessions.map((session) => (
-                    <button
-                      key={session.id}
-                      className={cn(
-                        "runtime-session-row",
-                        session.id === selectedSessionId && "runtime-session-row-active",
-                      )}
-                      type="button"
-                      onClick={() => onOpenSession(session)}
-                    >
-                      <span className="min-w-0 flex-1 text-left">
-                        <span className="block truncate font-medium">{session.title}</span>
-                        <span className="block truncate font-mono text-xs text-muted-foreground">
-                          {session.displayId} · {session.model}
-                        </span>
-                      </span>
-                      <span className="text-sm text-muted-foreground">{session.startedAgo}</span>
-                      <span className="font-mono text-sm">{session.totalTokens.toLocaleString()}</span>
-                    </button>
-                  ))}
+                <div className="runtime-card">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Usage</div>
+                  <div className="mt-2 text-lg font-semibold">{run.totalTokens.toLocaleString()} tokens</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {run.promptTokens.toLocaleString()} input · {run.completionTokens.toLocaleString()} output
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-        </ScrollArea>
+
+              <ScrollArea className="min-h-0 flex-1 pr-2">
+                <div className="grid gap-3 pb-2">
+                  {run.entities.map((entity) => (
+                    <div key={entity.id} className="runtime-entity-card">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{entity.label}</div>
+                          <div className="mt-1 text-sm text-muted-foreground">
+                            {entity.kind} · {entity.eventCount} events · {entity.totalTokens.toLocaleString()} tokens
+                          </div>
+                        </div>
+                        <Badge className={statusClass[entity.status]}>{entity.status}</Badge>
+                      </div>
+                      <div className="mt-3 grid gap-2">
+                        {entity.sessions.map((session) => (
+                          <button
+                            key={session.id}
+                            className={cn(
+                              "runtime-session-row",
+                              session.id === selectedSessionId && "runtime-session-row-active",
+                            )}
+                            type="button"
+                            onClick={() => onOpenSession(session)}
+                          >
+                            <span className="min-w-0 flex-1 text-left">
+                              <span className="block truncate font-medium">{session.title}</span>
+                              <span className="block truncate font-mono text-xs text-muted-foreground">
+                                {session.displayId} · {session.model}
+                              </span>
+                            </span>
+                            <span className="text-sm text-muted-foreground">{session.startedAgo}</span>
+                            <span className="font-mono text-sm">{session.totalTokens.toLocaleString()}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="timeline" className="min-h-0 flex-1">
+            <RuntimeTimeline
+              run={run}
+              activeEventId={activeRunEventId}
+              onSelectEvent={onSelectRunEvent}
+              onOpenSession={onOpenSession}
+            />
+          </TabsContent>
+        </Tabs>
       </CardContent>
     </>
   )
+}
+
+function RuntimeTimeline({
+  run,
+  activeEventId,
+  onSelectEvent,
+  onOpenSession,
+}: {
+  run: TraceRun
+  activeEventId: string
+  onSelectEvent: (event: TraceEvent) => void
+  onOpenSession: (session: TraceSession) => void
+}) {
+  const items = buildRuntimeTimelineItems(run)
+
+  if (items.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center rounded-lg border text-sm text-muted-foreground">
+        No runtime timeline events captured.
+      </div>
+    )
+  }
+
+  return (
+    <ScrollArea className="h-full pr-2">
+      <div className="runtime-timeline">
+        {items.map((item) => {
+          if (item.kind === "session") {
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className="runtime-timeline-row runtime-timeline-session"
+                onClick={() => onOpenSession(item.session)}
+              >
+                <RuntimeTimelineRail color="session" />
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block truncate font-medium">{item.session.title}</span>
+                  <span className="block truncate text-sm text-muted-foreground">
+                    {item.entity?.label ?? item.session.user} · {item.session.displayId} · {item.session.totalTokens.toLocaleString()} tokens
+                  </span>
+                </span>
+                <Badge variant="outline">{item.session.duration}</Badge>
+              </button>
+            )
+          }
+
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={cn(
+                "runtime-timeline-row",
+                item.event.id === activeEventId && "runtime-timeline-row-active",
+              )}
+              onClick={() => onSelectEvent(item.event)}
+            >
+              <RuntimeTimelineRail color={runtimeEventColor(item.event.type)} />
+              <span className="min-w-0 flex-1 text-left">
+                <span className="block truncate font-medium">{item.event.type}</span>
+                <span className="block truncate text-sm text-muted-foreground">{item.event.summary}</span>
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">{item.event.at}</span>
+            </button>
+          )
+        })}
+      </div>
+    </ScrollArea>
+  )
+}
+
+function RuntimeTimelineRail({
+  color,
+}: {
+  color: "runtime" | "entity" | "message" | "session"
+}) {
+  return (
+    <span className="runtime-timeline-rail">
+      <span className={cn("runtime-timeline-dot", `runtime-timeline-dot-${color}`)} />
+    </span>
+  )
+}
+
+function runtimeEventColor(type: string): "runtime" | "entity" | "message" | "session" {
+  if (type.includes("Entity")) return "entity"
+  if (type.includes("Message")) return "message"
+  return "runtime"
 }
 
 function FilterSelect({
@@ -1934,14 +2116,10 @@ function ResizeHandle({
 
 function TimelineEvent({
   event,
-  isFirst,
-  isLast,
   selected,
   onClick,
 }: {
   event: TraceEvent
-  isFirst: boolean
-  isLast: boolean
   selected: boolean
   onClick: () => void
 }) {
@@ -1963,13 +2141,7 @@ function TimelineEvent({
       )}
     >
       <span className="font-mono text-sm text-muted-foreground">{event.at}</span>
-      <span
-        className={cn(
-          "timeline-node relative z-10 flex size-8 items-center justify-center",
-          !isFirst && "timeline-node-before",
-          !isLast && "timeline-node-after",
-        )}
-      >
+      <span className="timeline-node relative z-10 flex size-8 items-center justify-center">
         <span className={cn("event-icon relative z-10 flex size-8 items-center justify-center rounded-full", colorClass)}>
           {event.type.includes("Tool") ? (
             <Wrench data-icon="inline-start" />

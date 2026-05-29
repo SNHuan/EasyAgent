@@ -65,20 +65,9 @@ trace store and open the browser automatically:
 easyagent dashboard --db path/to/traces.db --open
 ```
 
-To preview the runtime/world/entity/session tree with deterministic demo data,
-generate a dashboard database and point the CLI at it:
-
-```bash
-python examples/16_dashboard_runtime_tree.py --replace
-easyagent dashboard --db apps/dashboard/.easyagent/runtime-tree-demo.db --open
-```
-
-To generate real runtime traces with `gemini-3-flash-preview`, run:
-
-```bash
-python examples/17_real_runtime_tracing.py --replace
-easyagent dashboard --db apps/dashboard/.easyagent/real-runtime-traces.db --open
-```
+The dashboard understands both standalone agent sessions and runtime traces, so
+runtime/world/entity/session trees appear automatically when your application
+writes runtime events into the selected trace store.
 
 Create `easyagent/config/config.yaml` or configure LiteLLM through environment
 variables:

@@ -5,6 +5,36 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-05-29
+
+EasyAgent 0.6.3 tightens the runtime observability dashboard introduced in
+0.6.2. The dashboard now keeps runtime navigation state intact, renders runtime
+and session timelines more reliably, and improves token usage inspection.
+
+### Added
+
+- Runtime detail views now include a runtime timeline that mixes runtime events
+  and child session entries in timestamp order.
+- Runtime timeline event selection now drives the Event Payload inspector so
+  runtime event payloads can be inspected directly.
+
+### Changed
+
+- Runtime and session timeline connector lines are now drawn at the timeline
+  container level instead of per row, avoiding broken or misaligned connectors
+  when zoom level or row height changes.
+- Returning from a session opened from the runtime timeline now restores the
+  runtime timeline tab instead of resetting to the runtime overview.
+- Token Usage bar chart tooltips now align to the chart edge for the first and
+  last bars so they are not clipped.
+- README dashboard guidance no longer points to removed example scripts.
+
+### Install
+
+```bash
+pip install -U easy-agent-sdk==0.6.3
+```
+
 ## [0.6.2] - 2026-05-29
 
 EasyAgent 0.6.2 adds runtime-level observability on top of the existing agent
