@@ -12,6 +12,14 @@ EasyAgent 是一个轻量级 Agent SDK，核心设计是分层组合。项目希
 Agent 的设计：从最直接的模型调用开始，依次加入记忆、上下文、ReAct 循环、工具、
 技能、沙箱，最终通过 Entity-World-Schedule 架构编排多 agent 协作。
 
+你会得到：
+
+- 一套小而清晰的单 agent 栈：model、memory、context、tools、skills、sandbox。
+- 用于多 agent 系统的 Runtime 原语：Entity、World、Schedule、Runtime。
+- 兼容 Agent Skills 的技能加载：可从 `.easyagent/skills`、`.claude/skills`、
+  `.codex/skills` 或自定义目录加载。
+- 需要可观测性时，可接入 tracing、store 和本地 dashboard。
+
 ## 安装
 
 ```bash
@@ -48,47 +56,7 @@ async def main():
 asyncio.run(main())
 ```
 
-## 本地 Dashboard
-
-EasyAgent 可以把 agent session trace 持久化到 SQLite，并通过本地
-dashboard 查看日志、事件、消息历史和 token 统计：
-
-```bash
-easyagent dashboard
-```
-
-默认读取 `.easyagent/traces.db`。也可以指定 trace store，并自动打开浏览器：
-
-```bash
-easyagent dashboard --db path/to/traces.db --open
-```
-
-自定义事件可以通过 `DisplayHint` 指定前端展示位置。比如下面这个事件会
-以 `PlannerStepEvent` 持久化，并在 Messages tab 中显示成 assistant 气泡：
-
-```python
-from easyagent import CustomTraceEvent, DisplayHint, EventBus, MemoryStore, TraceRecorder
-
-store = MemoryStore()
-bus = EventBus()
-TraceRecorder(store).attach(bus)
-
-await bus.publish(
-    CustomTraceEvent(
-        event_type="PlannerStepEvent",
-        session_id="sess_planner",
-        agent_id="planner",
-        summary="Planner selected search_docs",
-        payload={"step": "search_docs"},
-        display=DisplayHint.messages(
-            "Need to inspect README and pyproject first.",
-            role="assistant",
-            title="Planner step",
-            source="planner",
-        ),
-    )
-)
-```
+## 配置
 
 可以创建 `easyagent/config/config.yaml`，也可以直接使用 LiteLLM 支持的环境变量：
 
@@ -126,34 +94,6 @@ EasyAgent 围绕三层展开：
 
 完整设计说明见 [docs/architecture.md](docs/architecture.md)。
 
-## Public API
-
-根包暴露常用稳定入口：
-
-```python
-from easyagent import (
-    # 单 agent
-    Agent, ReactAgent, SkillAgent, SandboxAgent,
-    AgentSession, AgentRunResult,
-    LiteLLMModel, Message,
-    EventBus, MessageEvent,
-    ToolManager, SkillManager, register_tool,
-    MCPToolset, load_mcp_tools, register_mcp_tools,
-    # 多 agent 协议
-    Entity, World, Schedule, Runtime, RuntimeResult,
-    # 感知与动作类型
-    Perception, Speak, Silent, ChatMessage,
-    # Entity 实现
-    LLMEntity, TeamEntity, HumanEntity,
-    # World 实现
-    ConversationWorld, PipelineWorld, SpatialWorld, StatefulWorld, SharedState,
-    # Schedule 实现
-    TakeTurns, RoundRobin, AllParallel, MaxTicks, UntilIdle, Reactive,
-    # 预设
-    sequential, fanout, debate, chatroom, groupchat,
-)
-```
-
 ## 学习路径
 
 examples 按层级排序，每个示例只引入一个新概念：
@@ -183,7 +123,7 @@ python examples/mcp/fastmcp_in_memory.py     # 把 FastMCP server 包成 EasyAge
 python examples/mcp/config_load.py           # 从 mcp_config.example.json 加载工具
 ```
 
-## Tools
+## 工具
 
 ```python
 from easyagent import LiteLLMModel, ReactAgent, register_tool
@@ -215,7 +155,7 @@ agent = ReactAgent(
 `tools=[...]` 直接接受类或实例。ReAct 循环会在模型返回工具调用时继续执行；
 当模型返回无工具调用的普通 assistant 文本时，将其视为最终答案。
 
-## MCP Tools
+## MCP 工具
 
 EasyAgent 可以把 MCP server 当成外部工具来源接入。MCP 支持已经包含在默认安装中。
 
@@ -257,7 +197,7 @@ await register_mcp_tools(tool_manager, mcp_config, tags=["demo"])
 
 可运行示例见 `examples/mcp/`。
 
-## Skills
+## 技能
 
 Skill 兼容 [Agent Skills](https://agentskills.io/) 标准，按需加载。
 `SKILL.md` 是必需入口文件，必须包含 YAML frontmatter，至少有 `name` 和
@@ -321,6 +261,79 @@ schedule = MaxTicks(inner=RoundRobin(ids=["alice", "bob"]), n=10)
 
 rt = Runtime(world=world, entities={"alice": alice, "bob": bob}, schedule=schedule)
 result = await rt.run("开始探索")
+```
+
+## 可观测性
+
+EasyAgent 可以把 agent session 和 runtime trace 持久化到 SQLite，并通过
+本地 dashboard 查看日志、事件、消息历史和 token 统计：
+
+```bash
+easyagent dashboard
+```
+
+默认读取 `.easyagent/traces.db`。也可以指定 trace store，并自动打开浏览器：
+
+```bash
+easyagent dashboard --db path/to/traces.db --open
+```
+
+dashboard 同时理解独立 agent session 和 runtime trace。只要应用把 runtime
+事件写入选定 trace store，runtime/world/entity/session 树就会自动展示出来。
+
+自定义事件可以通过 `DisplayHint` 指定前端展示位置。比如下面这个事件会
+以 `PlannerStepEvent` 持久化，并在 Messages tab 中显示成 assistant 气泡：
+
+```python
+from easyagent import CustomTraceEvent, DisplayHint, EventBus, MemoryStore, TraceRecorder
+
+store = MemoryStore()
+bus = EventBus()
+TraceRecorder(store).attach(bus)
+
+await bus.publish(
+    CustomTraceEvent(
+        event_type="PlannerStepEvent",
+        session_id="sess_planner",
+        agent_id="planner",
+        summary="Planner selected search_docs",
+        payload={"step": "search_docs"},
+        display=DisplayHint.messages(
+            "Need to inspect README and pyproject first.",
+            role="assistant",
+            title="Planner step",
+            source="planner",
+        ),
+    )
+)
+```
+
+## 公共 API
+
+根包暴露常用稳定入口：
+
+```python
+from easyagent import (
+    # 单 agent
+    Agent, ReactAgent, SkillAgent, SandboxAgent,
+    AgentSession, AgentRunResult,
+    LiteLLMModel, Message,
+    EventBus, MessageEvent,
+    ToolManager, SkillManager, register_tool,
+    MCPToolset, load_mcp_tools, register_mcp_tools,
+    # 多 agent 协议
+    Entity, World, Schedule, Runtime, RuntimeResult,
+    # 感知与动作类型
+    Perception, Speak, Silent, ChatMessage,
+    # Entity 实现
+    LLMEntity, TeamEntity, HumanEntity,
+    # World 实现
+    ConversationWorld, PipelineWorld, SpatialWorld, StatefulWorld, SharedState,
+    # Schedule 实现
+    TakeTurns, RoundRobin, AllParallel, MaxTicks, UntilIdle, Reactive,
+    # 预设
+    sequential, fanout, debate, chatroom, groupchat,
+)
 ```
 
 ## 模块结构

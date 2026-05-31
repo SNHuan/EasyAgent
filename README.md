@@ -14,6 +14,14 @@ single model call, then add memory and context, build up to a ReAct loop with
 tools and skills, drop into a sandbox, and finally orchestrate multiple agents
 through the Entity-World-Schedule architecture.
 
+What you get:
+
+- A small single-agent stack: model, memory, context, tools, skills, sandbox.
+- Runtime primitives for multi-agent systems: Entity, World, Schedule, Runtime.
+- Agent Skills-compatible loading from `.easyagent/skills`, `.claude/skills`,
+  `.codex/skills`, or any directory you choose.
+- Optional tracing, stores, and a local dashboard when you need observability.
+
 ## Install
 
 ```bash
@@ -51,53 +59,7 @@ async def main():
 asyncio.run(main())
 ```
 
-## Local Dashboard
-
-EasyAgent can persist agent and runtime traces to SQLite and open a local
-dashboard for logs, events, message history, and token usage:
-
-```bash
-easyagent dashboard
-```
-
-By default the CLI reads `.easyagent/traces.db`. You can point it at another
-trace store and open the browser automatically:
-
-```bash
-easyagent dashboard --db path/to/traces.db --open
-```
-
-The dashboard understands both standalone agent sessions and runtime traces, so
-runtime/world/entity/session trees appear automatically when your application
-writes runtime events into the selected trace store.
-
-Custom events can opt into dashboard surfaces by attaching a `DisplayHint`.
-For example, this event is persisted as `PlannerStepEvent` and rendered in the
-Messages tab as an assistant bubble:
-
-```python
-from easyagent import CustomTraceEvent, DisplayHint, EventBus, MemoryStore, TraceRecorder
-
-store = MemoryStore()
-bus = EventBus()
-TraceRecorder(store).attach(bus)
-
-await bus.publish(
-    CustomTraceEvent(
-        event_type="PlannerStepEvent",
-        session_id="sess_planner",
-        agent_id="planner",
-        summary="Planner selected search_docs",
-        payload={"step": "search_docs"},
-        display=DisplayHint.messages(
-            "Need to inspect README and pyproject first.",
-            role="assistant",
-            title="Planner step",
-            source="planner",
-        ),
-    )
-)
-```
+## Configuration
 
 Create `easyagent/config/config.yaml` or configure LiteLLM through environment
 variables:
@@ -139,34 +101,6 @@ Presets:         sequential / fanout / debate / chatroom / groupchat
   links child agent sessions back to the same runtime run.
 
 See [docs/architecture.md](docs/architecture.md) for the full design guide.
-
-## Public API
-
-The root package exposes the common SDK surface:
-
-```python
-from easyagent import (
-    # single-agent
-    Agent, ReactAgent, SkillAgent, SandboxAgent,
-    AgentSession, AgentRunResult,
-    LiteLLMModel, Message,
-    EventBus, MessageEvent,
-    ToolManager, SkillManager, register_tool,
-    MCPToolset, load_mcp_tools, register_mcp_tools,
-    # multi-agent protocols
-    Entity, World, Schedule, Runtime, RuntimeResult,
-    # perception & action types
-    Perception, Speak, Silent, ChatMessage,
-    # entities
-    LLMEntity, TeamEntity, HumanEntity,
-    # worlds
-    ConversationWorld, PipelineWorld, SpatialWorld, StatefulWorld, SharedState,
-    # schedules
-    TakeTurns, RoundRobin, AllParallel, MaxTicks, UntilIdle, Reactive,
-    # presets
-    sequential, fanout, debate, chatroom, groupchat,
-)
-```
 
 ## Learning Path
 
@@ -344,6 +278,82 @@ schedule = MaxTicks(inner=RoundRobin(ids=["alice", "bob"]), n=10)
 
 rt = Runtime(world=world, entities={"alice": alice, "bob": bob}, schedule=schedule)
 result = await rt.run("Start exploring")
+```
+
+## Observability
+
+EasyAgent can persist agent and runtime traces to SQLite and open a local
+dashboard for logs, events, message history, and token usage:
+
+```bash
+easyagent dashboard
+```
+
+By default the CLI reads `.easyagent/traces.db`. You can point it at another
+trace store and open the browser automatically:
+
+```bash
+easyagent dashboard --db path/to/traces.db --open
+```
+
+The dashboard understands both standalone agent sessions and runtime traces, so
+runtime/world/entity/session trees appear automatically when your application
+writes runtime events into the selected trace store.
+
+Custom events can opt into dashboard surfaces by attaching a `DisplayHint`.
+For example, this event is persisted as `PlannerStepEvent` and rendered in the
+Messages tab as an assistant bubble:
+
+```python
+from easyagent import CustomTraceEvent, DisplayHint, EventBus, MemoryStore, TraceRecorder
+
+store = MemoryStore()
+bus = EventBus()
+TraceRecorder(store).attach(bus)
+
+await bus.publish(
+    CustomTraceEvent(
+        event_type="PlannerStepEvent",
+        session_id="sess_planner",
+        agent_id="planner",
+        summary="Planner selected search_docs",
+        payload={"step": "search_docs"},
+        display=DisplayHint.messages(
+            "Need to inspect README and pyproject first.",
+            role="assistant",
+            title="Planner step",
+            source="planner",
+        ),
+    )
+)
+```
+
+## Public API
+
+The root package exposes the common SDK surface:
+
+```python
+from easyagent import (
+    # single-agent
+    Agent, ReactAgent, SkillAgent, SandboxAgent,
+    AgentSession, AgentRunResult,
+    LiteLLMModel, Message,
+    EventBus, MessageEvent,
+    ToolManager, SkillManager, register_tool,
+    MCPToolset, load_mcp_tools, register_mcp_tools,
+    # multi-agent protocols
+    Entity, World, Schedule, Runtime, RuntimeResult,
+    # perception & action types
+    Perception, Speak, Silent, ChatMessage,
+    # entities
+    LLMEntity, TeamEntity, HumanEntity,
+    # worlds
+    ConversationWorld, PipelineWorld, SpatialWorld, StatefulWorld, SharedState,
+    # schedules
+    TakeTurns, RoundRobin, AllParallel, MaxTicks, UntilIdle, Reactive,
+    # presets
+    sequential, fanout, debate, chatroom, groupchat,
+)
 ```
 
 ## Module Layout
