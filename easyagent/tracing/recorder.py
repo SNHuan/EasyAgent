@@ -65,6 +65,8 @@ class TraceRecorder:
             session.ended_at = event.timestamp
         elif isinstance(event, LLMRespondedEvent):
             session.token_usage.add(event.usage)
+        elif isinstance(event, CustomTraceEvent):
+            _apply_custom_trace_session_update(session, event, trace.payload)
 
         session.event_count += 1
         self.store.append_event(trace)
@@ -109,6 +111,47 @@ def event_to_trace(event: BaseEvent) -> EventTrace:
         agent_id=agent_id,
         payload=payload,
     )
+
+
+def _apply_custom_trace_session_update(
+    session: SessionTrace,
+    event: CustomTraceEvent,
+    payload: dict[str, Any],
+) -> None:
+    metadata = _custom_trace_metadata(payload)
+    if metadata:
+        session.metadata.update(metadata)
+    if payload.get("trace_kind") == "external_agent":
+        if event.event_type.endswith("StartedEvent"):
+            session.status = "running"
+            session.started_at = event.timestamp
+        elif event.event_type.endswith("FinishedEvent"):
+            session.status = "completed"
+            session.ended_at = event.timestamp
+        elif event.event_type.endswith("FailedEvent"):
+            session.status = "failed"
+            session.ended_at = event.timestamp
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        provider = payload.get("provider")
+        session.token_usage.add(usage, provider=str(provider) if provider else None)
+
+
+def _custom_trace_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    for key in (
+        "trace_kind",
+        "run_id",
+        "run_scope",
+        "run_title",
+        "world",
+        "entity",
+        "provider",
+        "provider_session_id",
+    ):
+        if key in payload:
+            metadata[key] = payload[key]
+    return metadata
 
 
 def _session_id(event: BaseEvent, payload: dict[str, Any]) -> str:

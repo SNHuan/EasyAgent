@@ -15,6 +15,7 @@ from easyagent import (
     SQLiteStore,
     TakeTurns,
     TraceRecorder,
+    register_token_usage_adapter,
 )
 from easyagent.model.schema import LLMResponse, LLMStreamChunk
 
@@ -237,4 +238,114 @@ def test_custom_trace_event_persists_event_type_payload_and_display_hint():
         "color": None,
         "priority": None,
         "metadata": {},
+    }
+
+
+def test_token_usage_normalizes_nested_provider_usage() -> None:
+    store = MemoryStore()
+    recorder = TraceRecorder(store)
+
+    recorder.record(
+        CustomTraceEvent(
+            event_type="ExternalAgentFinishedEvent",
+            session_id="session_codex_usage",
+            agent_id="codex",
+            summary="done",
+            payload={
+                "trace_kind": "external_agent",
+                "provider": "codex",
+                "usage": {
+                    "total": {
+                        "cached_input_tokens": 10,
+                        "input_tokens": 100,
+                        "output_tokens": 20,
+                        "reasoning_output_tokens": 5,
+                        "total_tokens": 125,
+                    }
+                },
+            },
+        )
+    )
+
+    session = store.get_session("session_codex_usage")
+    assert session is not None
+    assert session.token_usage.prompt_tokens == 100
+    assert session.token_usage.completion_tokens == 25
+    assert session.token_usage.total_tokens == 125
+    assert session.token_usage.details == {
+        "cached_input_tokens": 10,
+        "reasoning_output_tokens": 5,
+    }
+
+
+def test_token_usage_accepts_custom_provider_adapter() -> None:
+    store = MemoryStore()
+    recorder = TraceRecorder(store)
+    register_token_usage_adapter(
+        "custom_tokens",
+        lambda usage: {
+            "prompt_tokens": usage["request"],
+            "completion_tokens": usage["response"],
+            "total_tokens": usage["request"] + usage["response"],
+            "details": {"cache_write_tokens": usage["cache_write"]},
+        },
+    )
+
+    recorder.record(
+        CustomTraceEvent(
+            event_type="ExternalAgentFinishedEvent",
+            session_id="session_custom_usage",
+            agent_id="custom",
+            summary="done",
+            payload={
+                "trace_kind": "external_agent",
+                "provider": "custom_tokens",
+                "usage": {"request": 7, "response": 3, "cache_write": 2},
+            },
+        )
+    )
+
+    session = store.get_session("session_custom_usage")
+    assert session is not None
+    assert session.token_usage.to_dict() == {
+        "prompt_tokens": 7,
+        "completion_tokens": 3,
+        "total_tokens": 10,
+        "details": {"cache_write_tokens": 2},
+    }
+
+
+def test_token_usage_normalizes_claude_cache_details() -> None:
+    store = MemoryStore()
+    recorder = TraceRecorder(store)
+
+    recorder.record(
+        CustomTraceEvent(
+            event_type="ExternalAgentFinishedEvent",
+            session_id="session_claude_usage",
+            agent_id="claude",
+            summary="done",
+            payload={
+                "trace_kind": "external_agent",
+                "provider": "claude_code",
+                "usage": {
+                    "input_tokens": 1584,
+                    "cache_creation_input_tokens": 40795,
+                    "cache_read_input_tokens": 33281,
+                    "output_tokens": 343,
+                },
+            },
+        )
+    )
+
+    session = store.get_session("session_claude_usage")
+    assert session is not None
+    assert session.token_usage.to_dict() == {
+        "prompt_tokens": 1584,
+        "completion_tokens": 343,
+        "total_tokens": 1927,
+        "details": {
+            "cache_creation_input_tokens": 40795,
+            "cache_read_input_tokens": 33281,
+        },
     }
