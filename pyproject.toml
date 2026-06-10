@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "easy-agent-sdk"
-version = "0.6.4"
+version = "0.6.5"
 description = "A lightweight agent SDK built on LiteLLM, with single-agent (ReactAgent / SkillAgent / SandboxAgent) and Entity-World-Schedule multi-agent orchestration."
 readme = "README.md"
 license = {text = "MIT"}
@@ -37,6 +37,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+external = [
+    "claude-code-sdk>=0.0.25",
+    "openai-codex>=0.1.0b2",
+]
+claude = [
+    "claude-code-sdk>=0.0.25",
+]
+codex = [
+    "openai-codex>=0.1.0b2",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
