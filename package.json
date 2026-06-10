@@ -1,0 +1,8 @@
+{
+  "name": "easy-agent-sdk-external-js",
+  "private": true,
+  "description": "Optional JavaScript SDK dependencies for EasyAgent external agent examples.",
+  "dependencies": {
+    "@openai/codex-sdk": "^0.138.0"
+  }
+}

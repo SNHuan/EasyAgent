@@ -49,6 +49,10 @@ type RawTokenUsage = {
   prompt_tokens?: number
   completion_tokens?: number
   total_tokens?: number
+  input_tokens?: number
+  output_tokens?: number
+  details?: Record<string, number>
+  total?: Record<string, unknown>
 }
 
 type RawTraceEvent = {
@@ -204,6 +208,8 @@ type TraceMessage = {
   at: string
   eventId: string
   tokens?: string
+  detailContent?: string
+  detailLabel?: string
 }
 
 type TraceDisplayHint = {
@@ -323,7 +329,7 @@ function toTraceRun(run: RawTraceRun): TraceRun {
   const sessions = run.sessions?.length
     ? run.sessions.map(toTraceSession)
     : entities.flatMap((entity) => entity.sessions)
-  const tokenUsage = run.token_usage ?? buildTokenTotals(sessions)
+  const tokenUsage = normalizeRawTokenUsage(run.token_usage ?? buildTokenTotals(sessions))
   const events = (run.events ?? []).map((event, index) =>
     toTraceEvent(event, run.started_at, run.events?.[index - 1]?.timestamp),
   )
@@ -357,7 +363,7 @@ function toTraceRun(run: RawTraceRun): TraceRun {
 
 function toEntityTrace(entity: RawEntityTrace): EntityTrace {
   const sessions = (entity.sessions ?? []).map(toTraceSession)
-  const tokenUsage = entity.token_usage ?? buildTokenTotals(sessions)
+  const tokenUsage = normalizeRawTokenUsage(entity.token_usage ?? buildTokenTotals(sessions))
   const status = entity.status ?? sessions.find((session) => session.status === "running")?.status ?? sessions[0]?.status ?? "running"
 
   return {
@@ -381,7 +387,7 @@ function toTraceSession(session: RawTraceSession): TraceSession {
     session.events.map((event) => event.payload.model),
     "unknown",
   )
-  const tokenUsage = session.token_usage ?? {}
+  const tokenUsage = normalizeRawTokenUsage(session.token_usage ?? {})
   const events = session.events.map((event, index) =>
     toTraceEvent(event, session.started_at, session.events[index - 1]?.timestamp),
   )
@@ -417,7 +423,7 @@ function toTraceSession(session: RawTraceSession): TraceSession {
 function toTraceEvent(event: RawTraceEvent, sessionStartedAt: string, previousTimestamp?: string): TraceEvent {
   const timestamp = new Date(event.timestamp)
   const previous = previousTimestamp ? new Date(previousTimestamp) : new Date(sessionStartedAt)
-  const usage = isRecord(event.payload.usage) ? event.payload.usage : {}
+  const usage = normalizeRawTokenUsage(event.payload.usage)
   const promptTokens = numberValue(usage.prompt_tokens) || numberValue(usage.input_tokens)
   const completionTokens = numberValue(usage.completion_tokens) || numberValue(usage.output_tokens)
 
@@ -587,6 +593,9 @@ function isTimelineEventSelected(event: TraceEvent, activeEventId: string): bool
 }
 
 function buildMessageView(session: TraceSession): TraceMessage[] {
+  const externalTranscript = buildExternalAgentTranscriptMessages(session)
+  if (externalTranscript) return externalTranscript
+
   const displayMessages = session.raw.events.flatMap((event) => displayMessageFromEvent(session, event))
   const finalEvent =
     session.raw.events.findLast((event) => event.event_type === "AgentFinishedEvent") ??
@@ -627,18 +636,58 @@ function buildMessageView(session: TraceSession): TraceMessage[] {
   let userAdded = false
   let streamingMessage: TraceMessage | null = null
 
+  function pushMessage(message: TraceMessage) {
+    const previous = messages[messages.length - 1]
+    if (previous && previous.role === message.role && previous.content === message.content) {
+      return
+    }
+    messages.push(message)
+  }
+
   function flushStreamingMessage() {
     if (streamingMessage) {
-      messages.push(streamingMessage)
+      pushMessage(streamingMessage)
       streamingMessage = null
     }
   }
 
   for (const event of session.raw.events) {
+    if (event.event_type === "ExternalAgentMessageDeltaEvent") {
+      const content = String(event.payload.content ?? "")
+      if (content.length === 0) continue
+      if (!streamingMessage) {
+        streamingMessage = {
+          id: `${event.session_id}-external-streaming-assistant`,
+          role: "assistant",
+          content: "",
+          source: String(event.payload.provider ?? "external stream"),
+          at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
+          eventId: event.event_id,
+        }
+      }
+      streamingMessage = {
+        ...streamingMessage,
+        content: `${streamingMessage.content}${content}`,
+        eventId: event.event_id,
+      }
+      continue
+    }
+
     const displayMessage = displayMessageFromEvent(session, event)[0]
     if (displayMessage) {
+      if (streamingMessage && event.event_type === "ExternalAgentMessageEvent") {
+        streamingMessage = {
+          ...streamingMessage,
+          id: displayMessage.id,
+          content: displayMessage.content,
+          source: displayMessage.source,
+          eventId: displayMessage.eventId,
+        }
+        flushStreamingMessage()
+        continue
+      }
       flushStreamingMessage()
-      messages.push(displayMessage)
+      pushMessage(displayMessage)
       continue
     }
 
@@ -647,7 +696,7 @@ function buildMessageView(session: TraceSession): TraceMessage[] {
         isRecord(message) && normalizeRole(message.role) === "user",
       )
       if (isRecord(userMessage)) {
-        messages.push({
+        pushMessage({
           id: `${event.event_id}-user`,
           role: "user",
           content: formatMessageContent(userMessage.content),
@@ -693,7 +742,7 @@ function buildMessageView(session: TraceSession): TraceMessage[] {
           }
           flushStreamingMessage()
         } else {
-          messages.push({
+          pushMessage({
             id: `${event.event_id}-assistant`,
             role: "assistant",
             content,
@@ -708,7 +757,7 @@ function buildMessageView(session: TraceSession): TraceMessage[] {
 
     if (event.event_type === "ToolResultEvent") {
       flushStreamingMessage()
-      messages.push({
+      pushMessage({
         id: `${event.event_id}-tool`,
         role: "tool",
         content: String(event.payload.result ?? ""),
@@ -721,6 +770,380 @@ function buildMessageView(session: TraceSession): TraceMessage[] {
 
   flushStreamingMessage()
   return messages
+}
+
+function buildExternalAgentTranscriptMessages(session: TraceSession): TraceMessage[] | null {
+  const started = session.raw.events.find((event) => event.event_type === "ExternalAgentStartedEvent")
+  if (!started) return null
+
+  const provider = String(started.payload.provider ?? session.raw.agent_id ?? "external")
+  if (provider === "claude_code") {
+    return buildClaudeCodeTranscriptMessages(session, started, provider)
+  }
+  if (provider !== "codex") {
+    return null
+  }
+  const prompt = String(started.payload.prompt ?? "").trim()
+  const messages: TraceMessage[] = []
+  let activeAgentMessage: {
+    id: string
+    phase: string
+    content: string
+    startedAt: string
+    eventId: string
+  } | null = null
+  let finalMessageShown = false
+
+  function pushMessage(message: TraceMessage) {
+    const previous = messages[messages.length - 1]
+    if (previous && previous.role === message.role && previous.content === message.content) return
+    messages.push(message)
+  }
+
+  function flushActiveAgentMessage() {
+    if (!activeAgentMessage || activeAgentMessage.content.trim().length === 0) {
+      activeAgentMessage = null
+      return
+    }
+    const phase = activeAgentMessage.phase
+    const isFinal = phase.includes("final")
+    pushMessage({
+      id: `${activeAgentMessage.id}-${isFinal ? "final" : "process"}`,
+      role: "assistant",
+      content: activeAgentMessage.content.trim(),
+      source: isFinal ? `${providerLabel(provider)} final` : `${providerLabel(provider)} process`,
+      at: formatOffset(new Date(session.raw.started_at), new Date(activeAgentMessage.startedAt)),
+      eventId: activeAgentMessage.eventId,
+    })
+    finalMessageShown = finalMessageShown || isFinal
+    activeAgentMessage = null
+  }
+
+  if (prompt.length > 0) {
+    pushMessage({
+      id: `${started.event_id}-user-prompt`,
+      role: "user",
+      content: stripExternalUserPrefix(prompt),
+      source: "prompt",
+      at: formatOffset(new Date(session.raw.started_at), new Date(started.timestamp)),
+      eventId: started.event_id,
+    })
+  }
+
+  for (const event of session.raw.events) {
+    if (event.event_type === "ExternalAgentProviderEvent") {
+      const method = externalRawMethod(event)
+      const item = externalRawItem(event)
+      if (method === "item/started" && isRecord(item) && item.type === "agentMessage") {
+        flushActiveAgentMessage()
+        activeAgentMessage = {
+          id: String(item.id ?? event.event_id),
+          phase: String(item.phase ?? ""),
+          content: String(item.text ?? ""),
+          startedAt: event.timestamp,
+          eventId: event.event_id,
+        }
+        continue
+      }
+      if (method === "item/completed" && isRecord(item)) {
+        if (item.type === "agentMessage") {
+          if (!activeAgentMessage || activeAgentMessage.id !== String(item.id ?? "")) {
+            flushActiveAgentMessage()
+            activeAgentMessage = {
+              id: String(item.id ?? event.event_id),
+              phase: String(item.phase ?? ""),
+              content: "",
+              startedAt: event.timestamp,
+              eventId: event.event_id,
+            }
+          }
+          activeAgentMessage = {
+            ...activeAgentMessage,
+            phase: String(item.phase ?? activeAgentMessage.phase),
+            content: String(item.text ?? activeAgentMessage.content),
+            eventId: event.event_id,
+          }
+          flushActiveAgentMessage()
+          continue
+        }
+        if (item.type === "commandExecution") {
+          flushActiveAgentMessage()
+          const content = commandExecutionContent(item)
+          if (content) {
+            pushMessage({
+              id: `${event.event_id}-command`,
+              role: "assistant",
+              content,
+              source: `${providerLabel(provider)} process`,
+              at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
+              eventId: event.event_id,
+            })
+          }
+        }
+      }
+      continue
+    }
+
+    if (event.event_type === "ExternalAgentMessageDeltaEvent") {
+      if (!activeAgentMessage) {
+        activeAgentMessage = {
+          id: String(event.payload.item_id ?? event.event_id),
+          phase: "",
+          content: "",
+          startedAt: event.timestamp,
+          eventId: event.event_id,
+        }
+      }
+      activeAgentMessage = {
+        ...activeAgentMessage,
+        content: `${activeAgentMessage.content}${String(event.payload.content ?? "")}`,
+        eventId: event.event_id,
+      }
+      continue
+    }
+
+    if (event.event_type === "ExternalAgentMessageEvent") {
+      flushActiveAgentMessage()
+      const display = getDisplayHint(event.payload)
+      const content = String(event.payload.content ?? display?.content ?? "").trim()
+      if (content && !finalMessageShown) {
+        pushMessage({
+          id: `${event.event_id}-final`,
+          role: "assistant",
+          content,
+          source: `${providerLabel(provider)} final`,
+          at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
+          eventId: event.event_id,
+        })
+        finalMessageShown = true
+      }
+    }
+  }
+
+  flushActiveAgentMessage()
+  if (!finalMessageShown) {
+    const finishedEvent = session.raw.events.findLast((event) => event.event_type === "ExternalAgentFinishedEvent")
+    const finishedDisplay = finishedEvent ? getDisplayHint(finishedEvent.payload) : null
+    const content = String(finishedEvent?.payload.content ?? finishedDisplay?.content ?? "").trim()
+    if (finishedEvent && content) {
+      pushMessage({
+        id: `${finishedEvent.event_id}-final`,
+        role: "assistant",
+        content,
+        source: `${providerLabel(provider)} final`,
+        at: formatOffset(new Date(session.raw.started_at), new Date(finishedEvent.timestamp)),
+        eventId: finishedEvent.event_id,
+      })
+    }
+  }
+
+  return messages.length > 0 ? messages : null
+}
+
+function buildClaudeCodeTranscriptMessages(
+  session: TraceSession,
+  started: RawTraceEvent,
+  provider: string,
+): TraceMessage[] {
+  const prompt = String(started.payload.prompt ?? "").trim()
+  const messages: TraceMessage[] = []
+  const resultContent = claudeCodeResultContent(session.raw.events)
+  const toolCalls = new Map<string, { name: string; target: string }>()
+  let finalMessageShown = false
+
+  function pushMessage(message: TraceMessage) {
+    const previous = messages[messages.length - 1]
+    if (previous && previous.role === message.role && previous.content === message.content) return
+    messages.push(message)
+  }
+
+  if (prompt.length > 0) {
+    pushMessage({
+      id: `${started.event_id}-user-prompt`,
+      role: "user",
+      content: stripExternalUserPrefix(prompt),
+      source: "prompt",
+      at: formatOffset(new Date(session.raw.started_at), new Date(started.timestamp)),
+      eventId: started.event_id,
+    })
+  }
+
+  for (const event of session.raw.events) {
+    if (event.event_type === "ExternalAgentMessageEvent") {
+      const display = getDisplayHint(event.payload)
+      const content = String(event.payload.content ?? display?.content ?? "").trim()
+      if (!content) continue
+      const isFinal = resultContent.length > 0 && content === resultContent
+      if (isFinal && finalMessageShown) continue
+      pushMessage({
+        id: `${event.event_id}-${isFinal ? "final" : "process"}`,
+        role: "assistant",
+        content,
+        source: isFinal ? `${providerLabel(provider)} final` : `${providerLabel(provider)} process`,
+        at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
+        eventId: event.event_id,
+      })
+      finalMessageShown = finalMessageShown || isFinal
+      continue
+    }
+
+    if (event.event_type === "ExternalAgentToolCallEvent") {
+      const rawEvent = isRecord(event.payload.raw_event) ? event.payload.raw_event : {}
+      const toolName = String(event.payload.tool_name ?? "tool")
+      const args = isRecord(event.payload.arguments) ? event.payload.arguments : {}
+      const target = claudeCodeToolTarget(toolName, args)
+      const toolId = String(rawEvent.id ?? "")
+      if (toolId) toolCalls.set(toolId, { name: toolName, target })
+      const content = claudeCodeToolCallContent(event)
+      if (!content) continue
+      pushMessage({
+        id: `${event.event_id}-tool-call`,
+        role: "assistant",
+        content,
+        source: `${providerLabel(provider)} process`,
+        at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
+        eventId: event.event_id,
+      })
+      continue
+    }
+
+    if (event.event_type === "ExternalAgentToolResultEvent") {
+      const content = claudeCodeToolResultContent(event, toolCalls)
+      if (!content.summary) continue
+      pushMessage({
+        id: `${event.event_id}-tool-result`,
+        role: "assistant",
+        content: content.summary,
+        detailContent: content.detail,
+        detailLabel: content.detail ? "View tool detail" : undefined,
+        source: `${providerLabel(provider)} process`,
+        at: formatOffset(new Date(session.raw.started_at), new Date(event.timestamp)),
+        eventId: event.event_id,
+      })
+    }
+  }
+
+  if (!finalMessageShown && resultContent.length > 0) {
+    const resultEvent =
+      session.raw.events.findLast((event) => externalRawKind(event) === "result") ??
+      session.raw.events.findLast((event) => event.event_type === "ExternalAgentFinishedEvent") ??
+      started
+    pushMessage({
+      id: `${resultEvent.event_id}-final`,
+      role: "assistant",
+      content: resultContent,
+      source: `${providerLabel(provider)} final`,
+      at: formatOffset(new Date(session.raw.started_at), new Date(resultEvent.timestamp)),
+      eventId: resultEvent.event_id,
+    })
+  }
+
+  return messages
+}
+
+function claudeCodeResultContent(events: RawTraceEvent[]): string {
+  for (const event of [...events].reverse()) {
+    if (externalRawKind(event) === "result") {
+      const rawEvent = isRecord(event.payload.raw_event) ? event.payload.raw_event : {}
+      const content = String(rawEvent.content ?? event.payload.content ?? "").trim()
+      if (content) return content
+    }
+    if (event.event_type === "ExternalAgentFinishedEvent") {
+      const display = getDisplayHint(event.payload)
+      const content = String(event.payload.content ?? display?.content ?? "").trim()
+      if (content) return content
+    }
+  }
+  return ""
+}
+
+function claudeCodeToolCallContent(event: RawTraceEvent): string {
+  const toolName = String(event.payload.tool_name ?? "tool")
+  const args = isRecord(event.payload.arguments) ? event.payload.arguments : {}
+  const target = claudeCodeToolTarget(toolName, args)
+  return target ? `${toolName} ${markdownInlineCode(target)}` : toolName
+}
+
+function claudeCodeToolResultContent(
+  event: RawTraceEvent,
+  toolCalls: Map<string, { name: string; target: string }>,
+): { summary: string; detail: string } {
+  const rawEvent = isRecord(event.payload.raw_event) ? event.payload.raw_event : {}
+  const toolId = String(rawEvent.id ?? "")
+  const toolCall = toolCalls.get(toolId)
+  const toolName = toolCall?.name ?? String(event.payload.tool_name ?? rawEvent.name ?? "tool")
+  const content = String(event.payload.content ?? rawEvent.content ?? "").trim()
+  const status = event.payload.is_error || rawEvent.is_error ? "failed" : "completed"
+  const target = toolCall?.target ? ` ${markdownInlineCode(toolCall.target)}` : ""
+  return {
+    summary: `${toolName}${target} ${status}`,
+    detail: content,
+  }
+}
+
+function claudeCodeToolTarget(toolName: string, args: Record<string, unknown>): string {
+  if (toolName === "Read") return compactPathTarget(String(args.file_path ?? args.path ?? ""))
+  if (toolName === "Glob") return String(args.pattern ?? "")
+  if (toolName === "Grep") return String(args.pattern ?? "")
+  return compactPathTarget(String(args.file_path ?? args.path ?? args.pattern ?? ""))
+}
+
+function compactPathTarget(value: string): string {
+  if (!value.includes("/") && !value.includes("\\")) return value
+  return value.split(/[\\/]/).filter(Boolean).at(-1) ?? value
+}
+
+function commandExecutionContent(item: Record<string, unknown>): string {
+  const status = String(item.status ?? "").replace(/^CommandExecutionStatus\./, "")
+  const actions = Array.isArray(item.command_actions) ? item.command_actions : []
+  const actionNames = actions
+    .filter(isRecord)
+    .map((action) => {
+      const type = String(action.type ?? "command")
+      const name = String(action.name ?? action.path ?? action.command ?? "command")
+      return `${type} ${markdownInlineCode(name)}`
+    })
+  const command = String(item.command ?? "").trim()
+  const parts: string[] = []
+  if (command) parts.push(markdownCodeBlock(command, "bash"))
+  if (actionNames.length > 0 && status) {
+    parts.push(`${actionNames.join(", ")} ${status}`)
+  } else if (actionNames.length > 0) {
+    parts.push(actionNames.join(", "))
+  } else if (status) {
+    parts.push(status)
+  }
+  return parts.join("\n\n")
+}
+
+function externalRawMethod(event: RawTraceEvent): string {
+  return isRecord(event.payload.raw_event) ? String(event.payload.raw_event.method ?? "") : ""
+}
+
+function externalRawKind(event: RawTraceEvent): string {
+  return isRecord(event.payload.raw_event) ? String(event.payload.raw_event.type ?? "") : ""
+}
+
+function externalRawItem(event: RawTraceEvent): unknown {
+  if (!isRecord(event.payload.raw_event)) return undefined
+  const raw = event.payload.raw_event.raw
+  return isRecord(raw) ? raw.item : undefined
+}
+
+function providerLabel(provider: string): string {
+  return provider === "codex" ? "Codex" : provider
+}
+
+function stripExternalUserPrefix(value: string): string {
+  return value.replace(/^\[user\]\s*/i, "")
+}
+
+function markdownCodeBlock(value: string, language = "text"): string {
+  return `\`\`\`${language}\n${value.replaceAll("```", "`\u200b``")}\n\`\`\``
+}
+
+function markdownInlineCode(value: string): string {
+  return `\`${value.replaceAll("`", "\\`")}\``
 }
 
 function displayMessageFromEvent(session: TraceSession, event: RawTraceEvent): TraceMessage[] {
@@ -790,13 +1213,53 @@ function buildAllSessionUsageBars(sessions: TraceSession[]): UsageBar[] {
 
 function buildTokenTotals(sessions: TraceSession[]): RawTokenUsage {
   return sessions.reduce<RawTokenUsage>(
-    (totals, session) => ({
-      prompt_tokens: (totals.prompt_tokens ?? 0) + session.promptTokens,
-      completion_tokens: (totals.completion_tokens ?? 0) + session.completionTokens,
-      total_tokens: (totals.total_tokens ?? 0) + session.totalTokens,
-    }),
+    (totals, session) => mergeTokenUsage(totals, normalizeRawTokenUsage(session.raw.token_usage)),
     { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   )
+}
+
+function mergeTokenUsage(left: RawTokenUsage, right: RawTokenUsage): RawTokenUsage {
+  const details = { ...(left.details ?? {}) }
+  for (const [key, value] of Object.entries(right.details ?? {})) {
+    details[key] = (details[key] ?? 0) + value
+  }
+  return {
+    prompt_tokens: (left.prompt_tokens ?? 0) + (right.prompt_tokens ?? 0),
+    completion_tokens: (left.completion_tokens ?? 0) + (right.completion_tokens ?? 0),
+    total_tokens: (left.total_tokens ?? 0) + (right.total_tokens ?? 0),
+    ...(Object.keys(details).length > 0 ? { details } : {}),
+  }
+}
+
+function normalizeRawTokenUsage(value: unknown): RawTokenUsage {
+  if (!isRecord(value)) return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+  const source = isRecord(value.total) ? value.total : value
+  const promptTokens = numberValue(source.prompt_tokens) || numberValue(source.input_tokens)
+  const outputTokens = numberValue(source.completion_tokens) || numberValue(source.output_tokens)
+  const reasoningTokens = numberValue(source.reasoning_output_tokens) || numberValue(source.reasoning_tokens)
+  const explicitTotal = numberValue(source.total_tokens)
+  const details: Record<string, number> = {}
+  if (isRecord(value.details)) {
+    for (const [key, detailValue] of Object.entries(value.details)) {
+      const count = numberValue(detailValue)
+      if (count > 0) details[key] = count
+    }
+  }
+  const cachedInputTokens = numberValue(source.cached_input_tokens) || numberValue(source.cached_tokens)
+  if (cachedInputTokens > 0) details.cached_input_tokens = cachedInputTokens
+  const cacheCreationInputTokens = numberValue(source.cache_creation_input_tokens)
+  if (cacheCreationInputTokens > 0) details.cache_creation_input_tokens = cacheCreationInputTokens
+  const cacheReadInputTokens = numberValue(source.cache_read_input_tokens)
+  if (cacheReadInputTokens > 0) details.cache_read_input_tokens = cacheReadInputTokens
+  if (reasoningTokens > 0) details.reasoning_output_tokens = reasoningTokens
+  return {
+    prompt_tokens: promptTokens,
+    input_tokens: promptTokens,
+    completion_tokens: outputTokens + reasoningTokens,
+    output_tokens: outputTokens + reasoningTokens,
+    total_tokens: explicitTotal || promptTokens + outputTokens + reasoningTokens,
+    ...(Object.keys(details).length > 0 ? { details } : {}),
+  }
 }
 
 function buildTokenMix(usage: RawTokenUsage): TokenMixItem[] {
@@ -817,6 +1280,24 @@ function buildTokenMix(usage: RawTokenUsage): TokenMixItem[] {
       color: "oklch(0.66 0.16 150)",
     },
   ]
+}
+
+function buildTokenDetails(usage: RawTokenUsage): TokenMixItem[] {
+  const details = usage.details ?? {}
+  return Object.entries(details)
+    .filter(([, count]) => count > 0)
+    .map(([key, count], index) => ({
+      type: formatTokenDetailLabel(key),
+      count,
+      percentage: 0,
+      color: eventColors[(index + 2) % eventColors.length],
+    }))
+}
+
+function formatTokenDetailLabel(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function buildEventBreakdown(session: TraceSession): EventBreakdownItem[] {
@@ -1123,13 +1604,12 @@ function App() {
   const usageBars = buildAllSessionUsageBars(sessionRows)
   const maxHourlyTokens = Math.max(1, ...usageBars.map((bucket) => bucket.totalTokens))
   const allTokenUsage = buildTokenTotals(sessionRows)
-  const currentTokenUsage: RawTokenUsage = {
-    prompt_tokens: detailMode === "run" && selectedRun ? selectedRun.promptTokens : selectedSession.promptTokens,
-    completion_tokens: detailMode === "run" && selectedRun ? selectedRun.completionTokens : selectedSession.completionTokens,
-    total_tokens: detailMode === "run" && selectedRun ? selectedRun.totalTokens : selectedSession.totalTokens,
-  }
+  const currentTokenUsage = detailMode === "run" && selectedRun
+    ? normalizeRawTokenUsage(selectedRun.raw.token_usage)
+    : normalizeRawTokenUsage(selectedSession.raw.token_usage)
   const displayedTokenUsage = tokenUsageMode === "all" ? allTokenUsage : currentTokenUsage
-  const tokenMix = buildTokenMix(currentTokenUsage)
+  const tokenMix = buildTokenMix(displayedTokenUsage)
+  const tokenDetails = buildTokenDetails(displayedTokenUsage)
   const eventBreakdown = buildEventBreakdown(selectedSession)
   const inspectorPayload = detailMode === "run" && selectedRun
     ? activeRunEvent
@@ -1595,6 +2075,20 @@ function App() {
                         ↑ {(displayedTokenUsage.completion_tokens ?? 0).toLocaleString()} output
                       </span>
                     </div>
+                    {tokenDetails.length > 0 && (
+                      <div className="mb-4 grid gap-2 text-sm">
+                        {tokenDetails.map((item) => (
+                          <div key={item.type} className="token-mix-row">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="event-dot" style={{ background: item.color }} />
+                              <span className="truncate font-medium">{item.type}</span>
+                            </div>
+                            <span className="font-mono text-sm">{item.count.toLocaleString()}</span>
+                            <span className="text-right text-xs text-muted-foreground">detail</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {tokenUsageMode === "current" ? (
                       <div className="token-pie-layout">
                         <div className="usage-pie animated-pie" style={{ background: pieBackground(tokenMix) }}>
@@ -2245,9 +2739,16 @@ function MessageRow({
   const isTool = message.role === "tool"
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onClick()
+        }
+      }}
       className={cn(
         "message-row flex w-full text-left",
         isUser ? "justify-end" : "justify-start",
@@ -2286,17 +2787,32 @@ function MessageRow({
               <span className={cn("font-medium", isUser ? "text-blue-700" : "text-emerald-700")}>
                 {isUser ? "User" : "Agent"}
               </span>
-              <span className="font-mono text-muted-foreground">{message.at}</span>
+              <span className="shrink-0 font-mono text-muted-foreground">{message.at}</span>
             </div>
             <div className="message-content message-markdown text-sm leading-6">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {message.content}
               </ReactMarkdown>
             </div>
+            {message.detailContent && (
+              <details
+                className="message-detail mt-2"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <summary className="message-detail-summary">
+                  {message.detailLabel ?? "View details"}
+                </summary>
+                <div className="message-content message-markdown mt-2 text-sm leading-6">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {message.detailContent}
+                  </ReactMarkdown>
+                </div>
+              </details>
+            )}
           </>
         )}
       </div>
-    </button>
+    </div>
   )
 }
 

@@ -60,6 +60,10 @@ asyncio.run(main())
 
 可以创建 `easyagent/config/config.yaml`，也可以直接使用 LiteLLM 支持的环境变量：
 
+本地开发时，可以复制 `.env.example` 为 `.env`，只填写你需要的变量。这个统一的
+示例文件包含 EasyAgent 核心配置、Serper、Claude Code SDK 以及 Codex/OpenAI SDK
+认证相关环境变量。
+
 ```yaml
 debug: false
 
@@ -264,6 +268,8 @@ result = await rt.run("开始探索")
 ```
 
 ## 可观测性
+
+![DashBoard](assert/dashboard.png)
 
 EasyAgent 可以把 agent session 和 runtime trace 持久化到 SQLite，并通过
 本地 dashboard 查看日志、事件、消息历史和 token 统计：

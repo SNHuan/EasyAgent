@@ -891,13 +891,24 @@ select {
 
   .message-row {
     background: transparent;
+    min-width: 0;
+    overflow: hidden;
+    cursor: pointer;
+    border-radius: 10px;
+  }
+
+  .message-row:focus-visible {
+    outline: 2px solid oklch(0.62 0.18 247);
+    outline-offset: 2px;
   }
 
   .message-bubble {
+    min-width: 0;
     max-width: min(78%, 620px);
     border: 1px solid oklch(0.9 0 0);
     border-radius: 10px;
     padding: 10px 12px;
+    overflow: hidden;
   }
 
   .message-bubble-agent {
@@ -910,11 +921,13 @@ select {
   }
 
   .message-tool-card {
+    min-width: 0;
     width: min(68%, 520px);
     border: 1px solid oklch(0.88 0.025 247);
     border-radius: 8px;
     background: oklch(0.98 0.006 247);
     padding: 8px 10px;
+    overflow: hidden;
   }
 
   .message-selected {
@@ -929,6 +942,8 @@ select {
 
   .message-content {
     color: oklch(0.24 0 0);
+    min-width: 0;
+    overflow-wrap: anywhere;
     word-break: break-word;
   }
 
@@ -959,16 +974,43 @@ select {
   }
 
   .message-markdown pre {
-    overflow: auto;
+    overflow: hidden;
     border: 1px solid oklch(0.88 0 0);
     border-radius: 6px;
     background: oklch(0.98 0 0);
     padding: 0.65rem;
+    white-space: pre-wrap;
   }
 
   .message-markdown pre code {
     background: transparent;
     padding: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .message-detail {
+    border-top: 1px solid oklch(0.9 0 0);
+    padding-top: 8px;
+  }
+
+  .message-detail-summary {
+    width: fit-content;
+    cursor: pointer;
+    border-radius: 6px;
+    color: oklch(0.48 0.16 247);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    outline: none;
+  }
+
+  .message-detail-summary:hover {
+    color: oklch(0.38 0.16 247);
+    text-decoration: underline;
+  }
+
+  .message-detail-summary:focus-visible {
+    box-shadow: 0 0 0 2px oklch(0.62 0.18 247 / 22%);
   }
 
   .message-markdown a {

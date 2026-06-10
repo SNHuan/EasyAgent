@@ -5,12 +5,14 @@ __pycache__/
 *.py[cod]
 
 /easyagent/config/config.yaml
+/.easyagent/
 /easyagent/test/_smoke_skills/
 *.egg-info
 workspace/
 .env
 /agent_workspace
 /.vscode
+/.worktrees
 
 # Timestamped runtime artefacts (belt-and-suspenders against runtime code
 # accidentally writing logs to the repo root).

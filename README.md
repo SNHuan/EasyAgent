@@ -64,6 +64,10 @@ asyncio.run(main())
 Create `easyagent/config/config.yaml` or configure LiteLLM through environment
 variables:
 
+For local development, copy `.env.example` to `.env` and fill in only the
+variables you need. This single example file covers EasyAgent core settings,
+Serper, Claude Code SDK, and Codex/OpenAI SDK authentication.
+
 ```yaml
 debug: false
 
@@ -281,6 +285,8 @@ result = await rt.run("Start exploring")
 ```
 
 ## Observability
+
+![DashBoard](assert/dashboard.png)
 
 EasyAgent can persist agent and runtime traces to SQLite and open a local
 dashboard for logs, events, message history, and token usage:

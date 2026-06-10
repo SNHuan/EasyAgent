@@ -1,5 +1,6 @@
 """EasyAgent — an incrementally designed agent SDK.
 
+v0.6.5: Adds external Claude Code and Codex entities with dashboard tracing.
 v0.6.4: Adds dashboard display hints for custom trace events.
 v0.6.3: Polishes runtime dashboard timelines and navigation.
 v0.6.2: Adds runtime-level tracing and runtime/entity/session dashboard trees.
@@ -37,8 +38,16 @@ from easyagent.core import (
     UntilPredicate,
     World,
 )
-from easyagent.entities import HumanEntity, LLMEntity, TeamEntity
+from easyagent.entities import ExternalAgentEntity, HumanEntity, LLMEntity, TeamEntity
 from easyagent.events import CustomTraceEvent, EventBus, MessageEvent
+from easyagent.external import (
+    ClaudeCodeRunner,
+    CodexRunner,
+    ExternalResult,
+    ExternalRunner,
+    claude_code_entity,
+    codex_entity,
+)
 from easyagent.model.litellm_model import LiteLLMModel
 from easyagent.model.schema import LLMStreamChunk, Message
 from easyagent.mcp import MCPToolset, load_mcp_tools, register_mcp_tools
@@ -46,7 +55,14 @@ from easyagent.presets import chatroom, debate, fanout, groupchat, sequential
 from easyagent.skill import SkillManager
 from easyagent.store import JSONLStore, MemoryStore, SQLiteStore, TraceStore
 from easyagent.tool import ToolManager, register_tool
-from easyagent.tracing import DisplayHint, EventTrace, SessionTrace, TokenUsage, TraceRecorder
+from easyagent.tracing import (
+    DisplayHint,
+    EventTrace,
+    SessionTrace,
+    TokenUsage,
+    TraceRecorder,
+    register_token_usage_adapter,
+)
 from easyagent.worlds import (
     ConversationWorld,
     Grid2D,
@@ -56,7 +72,7 @@ from easyagent.worlds import (
     StatefulWorld,
 )
 
-__version__ = "0.6.4"
+__version__ = "0.6.5"
 
 __all__ = [
     # ── single-agent (unchanged) ───────────────────────────────────────
@@ -80,6 +96,7 @@ __all__ = [
     "SessionTrace",
     "EventTrace",
     "TokenUsage",
+    "register_token_usage_adapter",
     "TraceStore",
     "MemoryStore",
     "JSONLStore",
@@ -87,6 +104,12 @@ __all__ = [
     "MCPToolset",
     "load_mcp_tools",
     "register_mcp_tools",
+    "ExternalResult",
+    "ExternalRunner",
+    "ClaudeCodeRunner",
+    "CodexRunner",
+    "claude_code_entity",
+    "codex_entity",
     # ── core protocols ─────────────────────────────────────────────────
     "Entity",
     "World",
@@ -127,6 +150,7 @@ __all__ = [
     "LLMEntity",
     "TeamEntity",
     "HumanEntity",
+    "ExternalAgentEntity",
     # ── presets ─────────────────────────────────────────────────────────
     "sequential",
     "fanout",
