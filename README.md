@@ -282,6 +282,8 @@ result = await rt.run("Start exploring")
 
 ## Observability
 
+![DashBoard](assert/dashboard.png)
+
 EasyAgent can persist agent and runtime traces to SQLite and open a local
 dashboard for logs, events, message history, and token usage:
 

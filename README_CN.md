@@ -265,6 +265,8 @@ result = await rt.run("开始探索")
 
 ## 可观测性
 
+![DashBoard](assert/dashboard.png)
+
 EasyAgent 可以把 agent session 和 runtime trace 持久化到 SQLite，并通过
 本地 dashboard 查看日志、事件、消息历史和 token 统计：
 
