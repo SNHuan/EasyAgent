@@ -5,6 +5,53 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] - 2026-06-10
+
+EasyAgent 0.6.5 adds first-class wrappers for externally managed coding
+agents. Claude Code SDK and Codex SDK can now be registered as runtime
+entities, traced through the existing event system, and inspected in the local
+dashboard.
+
+### Added
+
+- `easyagent.external` with `ExternalAgentEntity`, `ExternalResult`,
+  `ExternalRunner`, `ClaudeCodeRunner`, `CodexRunner`, `claude_code_entity`,
+  and `codex_entity`.
+- Optional dependency groups: `external`, `claude`, and `codex` for installing
+  Claude Code SDK and Codex SDK integrations only when needed.
+- Real external agent examples:
+  - `examples/16_external_claude_code.py`
+  - `examples/17_external_codex.py`
+- `.env.example` as the single local environment example for EasyAgent core,
+  Serper, Claude Code SDK, and Codex/OpenAI SDK configuration.
+- `register_token_usage_adapter()` for provider-specific token usage
+  normalization.
+
+### Changed
+
+- Runtime tracing now supports external agent provider events, including
+  messages, streaming deltas, tool calls, tool results, final results, failures,
+  and provider session ids.
+- The dashboard Messages view now renders external agent transcripts with
+  user prompts on the right and agent process/final messages on the left.
+- Claude Code and Codex tool results are summarized by default; long result
+  payloads stay collapsed until expanded in the dashboard.
+- Token usage normalization now understands OpenAI/Codex-style
+  `input_tokens` / `output_tokens` payloads and Claude cache token details.
+- README and README_CN now reference the unified `.env.example` and include the
+  updated dashboard screenshot.
+
+### Removed
+
+- Removed the older `.example_env` file to avoid ambiguity with
+  `.env.example`.
+
+### Install
+
+```bash
+pip install -U easy-agent-sdk==0.6.5
+```
+
 ## [0.6.4] - 2026-05-29
 
 EasyAgent 0.6.4 adds a small display protocol for custom trace events. SDK
