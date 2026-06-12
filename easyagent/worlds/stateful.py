@@ -226,3 +226,13 @@ class StatefulWorld:
 
     def seed(self, content: str, *, sender: str = "user") -> None:
         self.inner.seed(content, sender=sender)
+
+    def set_tick(self, tick: int) -> None:
+        set_tick = getattr(self.inner, "set_tick", None)
+        if callable(set_tick):
+            set_tick(tick)
+
+    def advance(self, tick: int) -> None:
+        advance = getattr(self.inner, "advance", None)
+        if callable(advance):
+            advance(tick)

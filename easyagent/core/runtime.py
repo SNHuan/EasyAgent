@@ -7,10 +7,20 @@ Schedule returns None.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import TYPE_CHECKING
 
-from easyagent.core.types import Composite, LoopState, RuntimeResult, Silent
+from easyagent.core.types import Composite, LoopState, RuntimeResult, Silent, Speak
+from easyagent.events import (
+    EntityFinishedEvent,
+    EntityStartedEvent,
+    MessageEvent,
+    RuntimeFinishedEvent,
+    RuntimeStartedEvent,
+    RuntimeTickFinishedEvent,
+    RuntimeTickStartedEvent,
+)
 
 if TYPE_CHECKING:
     from easyagent.core.entity import Entity
@@ -66,19 +76,16 @@ class Runtime:
             "entities": entity_summaries,
         })
 
-        if self.bus is not None:
-            from easyagent.events import RuntimeStartedEvent
-
-            await self.bus.publish(
-                RuntimeStartedEvent(
-                    run_id=run_id,
-                    run_title=run_title,
-                    agent_ids=list(self.entities.keys()),
-                    world=world_summary,
-                    entities=entity_summaries,
-                    metadata=dict(self.metadata),
-                )
+        await self._emit(
+            RuntimeStartedEvent(
+                run_id=run_id,
+                run_title=run_title,
+                agent_ids=list(self.entities.keys()),
+                world=world_summary,
+                entities=entity_summaries,
+                metadata=dict(self.metadata),
             )
+        )
 
         try:
             while True:
@@ -86,102 +93,124 @@ class Runtime:
                 if active is None:
                     break
 
-                if self.bus is not None:
-                    from easyagent.events import RuntimeTickStartedEvent
-
-                    await self.bus.publish(
-                        RuntimeTickStartedEvent(
-                            run_id=run_id,
-                            tick=state.tick,
-                            active_entities=list(active),
-                        )
-                    )
-
-                tick_start = len(state.action_log)
-                for entity_id in active:
-                    if entity_id not in self.entities:
-                        continue
-                    entity = self.entities[entity_id]
-                    self._bind_entity_trace_context(
-                        entity_id=entity_id,
-                        entity=entity,
+                self._sync_world_clock(state.tick)
+                await self._emit(
+                    RuntimeTickStartedEvent(
                         run_id=run_id,
-                        run_title=run_title,
-                        world=world_summary,
-                    )
-                    perception = self.world.observe(entity_id)
-                    if self.bus is not None:
-                        from easyagent.events import EntityStartedEvent
-
-                        await self.bus.publish(
-                            EntityStartedEvent(run_id=run_id, entity_id=entity_id, tick=state.tick)
-                        )
-                    action = await entity.act(perception)
-
-                    if action is not None:
-                        self._apply_action(entity_id, action)
-                        state.action_log.append((entity_id, action))
-                    else:
-                        state.action_log.append((entity_id, Silent()))
-
-                    if self.bus is not None:
-                        from easyagent.events import EntityFinishedEvent
-
-                        await self.bus.publish(
-                            EntityFinishedEvent(
-                                run_id=run_id,
-                                entity_id=entity_id,
-                                tick=state.tick,
-                                action_type=type(action).__name__ if action is not None else "Silent",
-                            )
-                        )
-                        await self._publish(entity_id, action, run_id=run_id)
-
-                state.tick_boundaries.append(len(state.action_log))
-                if self.bus is not None:
-                    from easyagent.events import RuntimeTickFinishedEvent
-
-                    await self.bus.publish(
-                        RuntimeTickFinishedEvent(
-                            run_id=run_id,
-                            tick=state.tick,
-                            action_count=len(state.action_log) - tick_start,
-                        )
-                    )
-                state.tick += 1
-        except Exception:
-            if self.bus is not None:
-                from easyagent.events import RuntimeFinishedEvent
-
-                await self.bus.publish(
-                    RuntimeFinishedEvent(
-                        run_id=run_id,
-                        reason="error",
-                        status="failed",
-                        ticks=state.tick,
-                        metadata=dict(self.metadata),
+                        tick=state.tick,
+                        active_entities=list(active),
                     )
                 )
-            raise
 
-        if self.bus is not None:
-            from easyagent.events import RuntimeFinishedEvent
+                tick_start = len(state.action_log)
+                await self._run_tick(
+                    active,
+                    state,
+                    run_id=run_id,
+                    run_title=run_title,
+                    world_summary=world_summary,
+                )
+                self._evolve_world(state.tick)
 
-            await self.bus.publish(
+                state.tick_boundaries.append(len(state.action_log))
+                await self._emit(
+                    RuntimeTickFinishedEvent(
+                        run_id=run_id,
+                        tick=state.tick,
+                        action_count=len(state.action_log) - tick_start,
+                    )
+                )
+                state.tick += 1
+        except Exception:
+            await self._emit(
                 RuntimeFinishedEvent(
                     run_id=run_id,
-                    reason="schedule_stopped",
-                    status="completed",
+                    reason="error",
+                    status="failed",
                     ticks=state.tick,
                     metadata=dict(self.metadata),
                 )
             )
+            raise
+
+        await self._emit(
+            RuntimeFinishedEvent(
+                run_id=run_id,
+                reason="schedule_stopped",
+                status="completed",
+                ticks=state.tick,
+                metadata=dict(self.metadata),
+            )
+        )
 
         return RuntimeResult(
             actions=list(state.action_log),
             final_state=state,
             ticks=state.tick,
         )
+
+    async def _run_tick(
+        self,
+        active: list[str],
+        state: LoopState,
+        *,
+        run_id: str,
+        run_title: str,
+        world_summary: dict[str, object],
+    ) -> None:
+        """Run one tick: snapshot perceptions, act concurrently, apply in order.
+
+        Every active entity observes the *same* pre-tick world snapshot, so a
+        multi-entity tick is genuinely simultaneous — no entity sees another
+        entity's action from the same tick. Actions are then applied in
+        ``active`` order, keeping the action log deterministic regardless of
+        which ``act`` coroutine finishes first.
+        """
+        order = [entity_id for entity_id in active if entity_id in self.entities]
+        if not order:
+            return
+
+        # ── observe phase: one immutable snapshot for the whole tick ──────
+        perceptions = {}
+        for entity_id in order:
+            self._bind_entity_trace_context(
+                entity_id=entity_id,
+                entity=self.entities[entity_id],
+                run_id=run_id,
+                run_title=run_title,
+                world=world_summary,
+            )
+            perceptions[entity_id] = self.world.observe(entity_id)
+            await self._emit(
+                EntityStartedEvent(run_id=run_id, entity_id=entity_id, tick=state.tick)
+            )
+
+        # ── act phase: concurrent for multi-entity ticks ─────────────────
+        if len(order) == 1:
+            entity_id = order[0]
+            actions = [await self.entities[entity_id].act(perceptions[entity_id])]
+        else:
+            actions = await asyncio.gather(
+                *(self.entities[eid].act(perceptions[eid]) for eid in order)
+            )
+
+        # ── apply phase: deterministic order ─────────────────────────────
+        for entity_id, action in zip(order, actions):
+            if action is not None:
+                self._apply_action(entity_id, action)
+                state.action_log.append((entity_id, action))
+            else:
+                state.action_log.append((entity_id, Silent()))
+
+            await self._emit(
+                EntityFinishedEvent(
+                    run_id=run_id,
+                    entity_id=entity_id,
+                    tick=state.tick,
+                    action_type=type(action).__name__ if action is not None else "Silent",
+                )
+            )
+            await self._publish(entity_id, action, run_id=run_id)
 
     def _apply_action(self, entity_id: str, action: Action) -> None:
         if isinstance(action, Composite):
@@ -190,16 +219,33 @@ class Runtime:
         else:
             self.world.apply(entity_id, action)
 
-    async def _publish(self, entity_id: str, action: Action | None, *, run_id: str) -> None:
-        from easyagent.events.types import MessageEvent
-        from easyagent.core.types import Speak
+    async def _emit(self, event: object) -> None:
+        """Publish an event when a bus is attached; a no-op otherwise."""
+        if self.bus is not None:
+            await self.bus.publish(event)
 
-        if action is None or not isinstance(action, Speak):
+    def _sync_world_clock(self, tick: int) -> None:
+        """Push the runtime tick down to the world (if it tracks one)."""
+        set_tick = getattr(self.world, "set_tick", None)
+        if callable(set_tick):
+            set_tick(tick)
+
+    def _evolve_world(self, tick: int) -> None:
+        """Let the world apply its own per-tick dynamics, if it defines any."""
+        advance = getattr(self.world, "advance", None)
+        if callable(advance):
+            advance(tick)
+
+    async def _publish(self, entity_id: str, action: Action | None, *, run_id: str) -> None:
+        if self.bus is None or not isinstance(action, Speak):
             return
-        assert self.bus is not None
-        to = action.to if isinstance(action.to, str) else action.to
         await self.bus.publish(
-            MessageEvent(sender=entity_id, to=to, content=action.content, metadata={"run_id": run_id})
+            MessageEvent(
+                sender=entity_id,
+                to=action.to,
+                content=action.content,
+                metadata={"run_id": run_id},
+            )
         )
 
     def _bind_entity_trace_context(
