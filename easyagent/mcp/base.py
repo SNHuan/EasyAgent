@@ -101,16 +101,19 @@ def normalize_mcp_result(value: Any) -> str:
         return ""
 
     structured = (
-        getattr(value, "data", None)
-        or getattr(value, "structuredContent", None)
+        getattr(value, "structuredContent", None)
         or getattr(value, "structured_content", None)
     )
     if structured is not None:
-        return json.dumps(structured, ensure_ascii=False, default=str)
+        return json.dumps(_jsonable(structured), ensure_ascii=False)
 
     content = getattr(value, "content", None)
     if content is not None:
         return normalize_mcp_result(content)
+
+    data = getattr(value, "data", None)
+    if data is not None:
+        return json.dumps(_jsonable(data), ensure_ascii=False)
 
     if isinstance(value, str):
         return value
@@ -125,7 +128,7 @@ def normalize_mcp_result(value: Any) -> str:
         )
 
     if isinstance(value, dict):
-        return json.dumps(value, ensure_ascii=False, default=str)
+        return json.dumps(_jsonable(value), ensure_ascii=False)
 
     return str(value)
 
@@ -153,9 +156,40 @@ def normalize_mcp_content_block(block: Any) -> str:
         return normalize_mcp_result(resource)
 
     if isinstance(block, dict):
-        return json.dumps(block, ensure_ascii=False, default=str)
+        return json.dumps(_jsonable(block), ensure_ascii=False)
 
     return str(block)
+
+
+def _jsonable(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_jsonable(item) for item in value]
+
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return _jsonable(model_dump(exclude_none=True))
+        except TypeError:
+            return _jsonable(model_dump())
+
+    dict_method = getattr(value, "dict", None)
+    if callable(dict_method):
+        try:
+            return _jsonable(dict_method(exclude_none=True))
+        except TypeError:
+            return _jsonable(dict_method())
+
+    root = getattr(value, "root", None)
+    if root is not None:
+        return _jsonable(root)
+
+    return str(value)
 
 
 def _as_schema(value: Any) -> dict[str, Any]:

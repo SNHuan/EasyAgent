@@ -147,3 +147,31 @@ def test_normalize_mcp_result_handles_structured_content():
         structured_content = {"ok": True}
 
     assert normalize_mcp_result(Result()) == '{"ok": true}'
+
+
+def test_normalize_mcp_result_prefers_structured_content_over_data():
+    class RootLike:
+        def __str__(self) -> str:
+            return "Root()"
+
+    class Result:
+        data = [RootLike()]
+        structured_content = {"result": [{"title": "Valid paper"}]}
+        content = [{"type": "text", "text": '[{"title": "Valid paper"}]'}]
+
+    result = normalize_mcp_result(Result())
+
+    assert "Valid paper" in result
+    assert "Root()" not in result
+
+
+def test_normalize_mcp_result_prefers_content_over_data():
+    class RootLike:
+        def __str__(self) -> str:
+            return "Root()"
+
+    class Result:
+        data = [RootLike()]
+        content = [{"type": "text", "text": "plain tool output"}]
+
+    assert normalize_mcp_result(Result()) == "plain tool output"
