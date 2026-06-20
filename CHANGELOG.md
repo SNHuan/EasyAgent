@@ -5,6 +5,43 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] - 2026-06-20
+
+EasyAgent 0.6.6 tightens multi-agent runtime semantics and improves MCP tool
+result normalization. Runtime ticks now use a clearer observe/act/apply split,
+and MCP integrations preserve structured provider results more reliably.
+
+### Changed
+
+- Runtime tick execution now snapshots all active entity perceptions before
+  running entity actions, then applies actions in deterministic active-entity
+  order.
+- Multi-entity ticks now run the `act()` phase concurrently with
+  `asyncio.gather()` while keeping the action log deterministic.
+- Runtime tick is now synchronized into worlds that expose `set_tick()`, making
+  `Perception.tick` follow the runtime tick source of truth.
+- Worlds may now expose `advance(tick)` for optional per-tick world dynamics;
+  `StatefulWorld` forwards both `set_tick()` and `advance()` to its inner
+  world.
+- MCP result normalization now prefers `structuredContent` /
+  `structured_content` over less precise `data` payloads.
+- MCP structured values are converted through a JSON-safe normalizer before
+  serialization, including pydantic-style `model_dump()`, legacy `dict()`,
+  `root`, bytes, mappings, and iterables.
+
+### Fixed
+
+- Avoided MCP result output falling back to opaque root-like object strings
+  when a structured content payload is available.
+- Preserved plain content output ahead of fallback `data` when MCP providers
+  return both.
+
+### Install
+
+```bash
+pip install -U easy-agent-sdk==0.6.6
+```
+
 ## [0.6.5] - 2026-06-10
 
 EasyAgent 0.6.5 adds first-class wrappers for externally managed coding

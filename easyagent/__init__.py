@@ -1,5 +1,6 @@
 """EasyAgent — an incrementally designed agent SDK.
 
+v0.6.6: Refines runtime tick execution and MCP structured result handling.
 v0.6.5: Adds external Claude Code and Codex entities with dashboard tracing.
 v0.6.4: Adds dashboard display hints for custom trace events.
 v0.6.3: Polishes runtime dashboard timelines and navigation.
@@ -72,7 +73,7 @@ from easyagent.worlds import (
     StatefulWorld,
 )
 
-__version__ = "0.6.5"
+__version__ = "0.6.6"
 
 __all__ = [
     # ── single-agent (unchanged) ───────────────────────────────────────
