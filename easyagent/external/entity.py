@@ -268,6 +268,8 @@ class ExternalAgentEntity:
         }
         if result and result.session_id:
             metadata["provider_session_id"] = result.session_id
+        if result and "dashboard_group_path" in result.metadata:
+            metadata["dashboard_group_path"] = result.metadata["dashboard_group_path"]
         return metadata
 
     def _bus(self) -> EventBus | None:

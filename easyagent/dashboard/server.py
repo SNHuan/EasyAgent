@@ -199,6 +199,7 @@ def _sessions_to_run(run_id: str, sessions: list[dict[str, Any]]) -> dict[str, A
         "token_usage": _sum_token_usage(session.get("token_usage") for session in visible_sessions),
         "world": metadata.get("world"),
         "entities": entities,
+        "tree": _tree_from_sessions(agent_sessions),
         "sessions": visible_sessions,
         "events": run_events,
         "metadata": {
@@ -241,6 +242,116 @@ def _entities_from_sessions(sessions: list[dict[str, Any]]) -> list[dict[str, An
         )
 
     return sorted(entities, key=lambda entity: str(entity["label"]))
+
+
+def _tree_from_sessions(sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    roots: list[dict[str, Any]] = []
+    root_index: dict[str, dict[str, Any]] = {}
+
+    for session in sessions:
+        parent_children = roots
+        parent_index = root_index
+
+        for group in _dashboard_group_path(session):
+            node_id = f"group:{group['id']}"
+            node = parent_index.get(node_id)
+            if node is None:
+                node = _empty_tree_node(
+                    node_id=node_id,
+                    label=group["label"],
+                    kind=group["kind"],
+                )
+                parent_index[node_id] = node
+                parent_children.append(node)
+            _add_session_totals(node, session)
+            parent_children = node["children"]
+            parent_index = node.setdefault("_child_index", {})
+
+        entity = _session_entity(session)
+        entity_id = f"entity:{entity['entity_id']}"
+        entity_node = parent_index.get(entity_id)
+        if entity_node is None:
+            entity_node = _empty_tree_node(
+                node_id=entity_id,
+                label=entity["label"],
+                kind=entity["kind"],
+            )
+            parent_index[entity_id] = entity_node
+            parent_children.append(entity_node)
+        _add_session_totals(entity_node, session)
+        entity_node["sessions"].append(session)
+
+    _finalize_tree_nodes(roots)
+    return roots
+
+
+def _dashboard_group_path(session: dict[str, Any]) -> list[dict[str, str]]:
+    metadata = _metadata(session)
+    raw_path = metadata.get("dashboard_group_path")
+    if not isinstance(raw_path, list):
+        return []
+
+    path: list[dict[str, str]] = []
+    for index, raw_group in enumerate(raw_path):
+        if not isinstance(raw_group, dict):
+            continue
+        raw_id = raw_group.get("id") or raw_group.get("label") or raw_group.get("name")
+        if raw_id is None:
+            raw_id = f"group-{index}"
+        label = raw_group.get("label") or raw_group.get("name") or raw_id
+        kind = raw_group.get("kind") or "group"
+        path.append(
+            {
+                "id": str(raw_id),
+                "label": str(label),
+                "kind": str(kind),
+            }
+        )
+    return path
+
+
+def _session_entity(session: dict[str, Any]) -> dict[str, str]:
+    metadata = _metadata(session)
+    entity = metadata.get("entity") if isinstance(metadata.get("entity"), dict) else {}
+    entity_id = str(entity.get("entity_id") or metadata.get("entity_id") or session.get("agent_id") or session["session_id"])
+    return {
+        "entity_id": entity_id,
+        "label": str(entity.get("label") or entity.get("name") or session.get("agent_id") or entity_id),
+        "kind": str(entity.get("kind") or "agent"),
+    }
+
+
+def _empty_tree_node(*, node_id: str, label: str, kind: str) -> dict[str, Any]:
+    return {
+        "id": node_id,
+        "label": label,
+        "kind": kind,
+        "status": "running",
+        "event_count": 0,
+        "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "children": [],
+        "sessions": [],
+        "_statuses": [],
+        "_child_index": {},
+    }
+
+
+def _add_session_totals(node: dict[str, Any], session: dict[str, Any]) -> None:
+    node["event_count"] += int(session.get("event_count") or 0)
+    node["_statuses"].append(session.get("status", "running"))
+    token_usage = node["token_usage"]
+    session_usage = session.get("token_usage") if isinstance(session.get("token_usage"), dict) else {}
+    token_usage["prompt_tokens"] += int(session_usage.get("prompt_tokens") or 0)
+    token_usage["completion_tokens"] += int(session_usage.get("completion_tokens") or 0)
+    token_usage["total_tokens"] += int(session_usage.get("total_tokens") or 0)
+
+
+def _finalize_tree_nodes(nodes: list[dict[str, Any]]) -> None:
+    nodes.sort(key=lambda node: (str(node["label"]), str(node["id"])))
+    for node in nodes:
+        node["status"] = _aggregate_status(node.pop("_statuses", []))
+        node.pop("_child_index", None)
+        _finalize_tree_nodes(node["children"])
 
 
 def _session_with_events(store: SQLiteStore, session: SessionTrace) -> dict[str, Any]:

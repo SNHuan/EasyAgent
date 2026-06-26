@@ -144,6 +144,46 @@ async def test_external_agent_entity_emits_dashboard_trace_events_inside_runtime
 
 
 @pytest.mark.asyncio
+async def test_external_agent_entity_promotes_dashboard_group_path_from_result_metadata() -> None:
+    store = MemoryStore()
+    bus = EventBus()
+    TraceRecorder(store).attach(bus)
+
+    runner = RecordingRunner(
+        ExternalResult(
+            content="implemented",
+            provider="fake",
+            metadata={
+                "dashboard_group_path": [
+                    {"id": "repo:easyagent", "label": "EasyAgent", "kind": "repo"},
+                    {"id": "task:dashboard-tree", "label": "Dashboard Tree", "kind": "task"},
+                ]
+            },
+        )
+    )
+    entity = ExternalAgentEntity("coder", runner=runner, provider="fake")
+    runtime = Runtime(
+        world=ConversationWorld(),
+        entities={"coder": entity},
+        schedule=TakeTurns(order=["coder"]),
+        bus=bus,
+        runtime_id="runtime_external_grouped",
+    )
+
+    await runtime.run("build it")
+
+    external_session = next(
+        session
+        for session in store.list_sessions()
+        if session.session_id != "runtime_external_grouped"
+    )
+    assert external_session.metadata["dashboard_group_path"] == [
+        {"id": "repo:easyagent", "label": "EasyAgent", "kind": "repo"},
+        {"id": "task:dashboard-tree", "label": "Dashboard Tree", "kind": "task"},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_external_agent_entity_emits_failed_trace_event() -> None:
     store = MemoryStore()
     bus = EventBus()

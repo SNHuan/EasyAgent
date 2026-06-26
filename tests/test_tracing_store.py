@@ -17,6 +17,7 @@ from easyagent import (
     TraceRecorder,
     register_token_usage_adapter,
 )
+from easyagent.dashboard.server import load_trace_payload
 from easyagent.model.schema import LLMResponse, LLMStreamChunk
 
 
@@ -239,6 +240,88 @@ def test_custom_trace_event_persists_event_type_payload_and_display_hint():
         "priority": None,
         "metadata": {},
     }
+
+
+def test_custom_trace_event_persists_dashboard_group_path_metadata() -> None:
+    store = MemoryStore()
+    recorder = TraceRecorder(store)
+
+    recorder.record(
+        CustomTraceEvent(
+            event_type="ExternalAgentStartedEvent",
+            session_id="session_grouped",
+            agent_id="coder",
+            summary="started",
+            payload={
+                "trace_kind": "external_agent",
+                "run_id": "run_grouped",
+                "entity": {"entity_id": "coder", "label": "Coder"},
+                "dashboard_group_path": [
+                    {"id": "repo:easyagent", "label": "EasyAgent", "kind": "repo"},
+                    {"id": "task:dashboard-tree", "label": "Dashboard Tree", "kind": "task"},
+                ],
+            },
+        )
+    )
+
+    session = store.get_session("session_grouped")
+    assert session is not None
+    assert session.metadata["dashboard_group_path"] == [
+        {"id": "repo:easyagent", "label": "EasyAgent", "kind": "repo"},
+        {"id": "task:dashboard-tree", "label": "Dashboard Tree", "kind": "task"},
+    ]
+
+
+def test_dashboard_trace_payload_projects_custom_group_path_tree(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "traces.db")
+    recorder = TraceRecorder(store)
+
+    for session_id, agent_id, label in (
+        ("session_coder", "coder", "Coder"),
+        ("session_reviewer", "reviewer", "Reviewer"),
+    ):
+        recorder.record(
+            CustomTraceEvent(
+                event_type="ExternalAgentStartedEvent",
+                session_id=session_id,
+                agent_id=agent_id,
+                summary="started",
+                payload={
+                    "trace_kind": "external_agent",
+                    "run_id": "run_grouped",
+                    "run_title": "Grouped run",
+                    "entity": {"entity_id": agent_id, "label": label, "kind": "agent"},
+                    "dashboard_group_path": [
+                        {"id": "repo:easyagent", "label": "EasyAgent", "kind": "repo"},
+                        {"id": "task:dashboard-tree", "label": "Dashboard Tree", "kind": "task"},
+                    ],
+                },
+            )
+        )
+
+    payload = load_trace_payload(tmp_path / "traces.db")
+
+    run = payload["runs"][0]
+    assert run["run_id"] == "run_grouped"
+    repo_node = run["tree"][0]
+    assert repo_node["id"] == "group:repo:easyagent"
+    assert repo_node["label"] == "EasyAgent"
+    assert repo_node["kind"] == "repo"
+    assert repo_node["event_count"] == 2
+
+    task_node = repo_node["children"][0]
+    assert task_node["id"] == "group:task:dashboard-tree"
+    assert task_node["label"] == "Dashboard Tree"
+    assert task_node["kind"] == "task"
+    assert task_node["event_count"] == 2
+
+    entity_nodes = task_node["children"]
+    assert [node["id"] for node in entity_nodes] == ["entity:coder", "entity:reviewer"]
+    assert [node["label"] for node in entity_nodes] == ["Coder", "Reviewer"]
+    assert [node["sessions"][0]["session_id"] for node in entity_nodes] == [
+        "session_coder",
+        "session_reviewer",
+    ]
 
 
 def test_token_usage_normalizes_nested_provider_usage() -> None:

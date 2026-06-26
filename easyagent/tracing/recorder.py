@@ -146,6 +146,7 @@ def _custom_trace_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         "run_title",
         "world",
         "entity",
+        "dashboard_group_path",
         "provider",
         "provider_session_id",
     ):
