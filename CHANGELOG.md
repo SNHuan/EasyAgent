@@ -5,13 +5,10 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.6] - 2026-06-26
+## [0.6.7] - 2026-06-26
 
-EasyAgent 0.6.6 tightens multi-agent runtime semantics and improves MCP tool
-result normalization, while extending the local dashboard trace tree with
-custom grouping paths for external and custom trace producers. Runtime ticks
-now use a clearer observe/act/apply split, MCP integrations preserve structured
-provider results more reliably, and dashboard runs can be projected as
+EasyAgent 0.6.7 extends the local dashboard trace tree with custom grouping
+paths for external and custom trace producers. Runs can now be projected as
 `run -> custom groups -> entity -> session` without changing the trace store
 schema.
 
@@ -30,6 +27,23 @@ schema.
 
 ### Changed
 
+- Dashboard frontend code is split into route and shell modules while keeping
+  the bundled static dashboard assets in sync.
+
+### Install
+
+```bash
+pip install -U easy-agent-sdk==0.6.7
+```
+
+## [0.6.6] - 2026-06-20
+
+EasyAgent 0.6.6 tightens multi-agent runtime semantics and improves MCP tool
+result normalization. Runtime ticks now use a clearer observe/act/apply split,
+and MCP integrations preserve structured provider results more reliably.
+
+### Changed
+
 - Runtime tick execution now snapshots all active entity perceptions before
   running entity actions, then applies actions in deterministic active-entity
   order.
@@ -45,8 +59,6 @@ schema.
 - MCP structured values are converted through a JSON-safe normalizer before
   serialization, including pydantic-style `model_dump()`, legacy `dict()`,
   `root`, bytes, mappings, and iterables.
-- Dashboard frontend code is split into route and shell modules while keeping
-  the bundled static dashboard assets in sync.
 
 ### Fixed
 
