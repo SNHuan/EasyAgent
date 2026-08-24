@@ -11,7 +11,26 @@ v0.6.0: Adds tracing persistence, streaming model responses, Agent Skills
 loading, and the local dashboard CLI.
 """
 
-from easyagent.agent import Agent, AgentRunResult, AgentSession, ReactAgent, SandboxAgent, SkillAgent
+from easyagent.agent import (
+    Agent,
+    AgentRunResult,
+    AgentSession,
+    ReactAgent,
+    SandboxAgent,
+    SessionNotResumableError,
+    SkillAgent,
+)
+from easyagent.checkpoint import (
+    AgentCheckpoint,
+    CheckpointCompatibilityIssue,
+    CheckpointCompatibilityReport,
+    CheckpointStore,
+    IncompatibleCheckpointError,
+    InvalidCheckpointStateError,
+    MemoryCheckpointStore,
+    SQLiteCheckpointStore,
+    UnsupportedCheckpointVersionError,
+)
 from easyagent.core import (
     Action,
     AllParallel,
@@ -46,9 +65,17 @@ from easyagent.external import (
     ClaudeCodeRunner,
     CodexRunner,
     ExternalResult,
+    ExternalRunRequest,
     ExternalRunner,
+    LegacyExternalRunnerAdapter,
     claude_code_entity,
     codex_entity,
+)
+from easyagent.hooks import (
+    AfterToolCallHook,
+    BeforeToolCallHook,
+    BeforeToolCallResult,
+    HookManager,
 )
 from easyagent.model.litellm_model import LiteLLMModel
 from easyagent.model.schema import LLMStreamChunk, Message
@@ -56,7 +83,7 @@ from easyagent.mcp import MCPToolset, load_mcp_tools, register_mcp_tools
 from easyagent.presets import chatroom, debate, fanout, groupchat, sequential
 from easyagent.skill import SkillManager
 from easyagent.store import JSONLStore, MemoryStore, SQLiteStore, TraceStore
-from easyagent.tool import ToolManager, register_tool
+from easyagent.tool import Tool, ToolContext, ToolManager, ToolResult, register_tool
 from easyagent.tracing import (
     DisplayHint,
     EventTrace,
@@ -81,6 +108,16 @@ __all__ = [
     "Agent",
     "AgentRunResult",
     "AgentSession",
+    "SessionNotResumableError",
+    "AgentCheckpoint",
+    "CheckpointCompatibilityIssue",
+    "CheckpointCompatibilityReport",
+    "CheckpointStore",
+    "IncompatibleCheckpointError",
+    "InvalidCheckpointStateError",
+    "MemoryCheckpointStore",
+    "SQLiteCheckpointStore",
+    "UnsupportedCheckpointVersionError",
     "ReactAgent",
     "SkillAgent",
     "SandboxAgent",
@@ -90,7 +127,14 @@ __all__ = [
     "MessageEvent",
     "CustomTraceEvent",
     "EventBus",
+    "HookManager",
+    "BeforeToolCallHook",
+    "BeforeToolCallResult",
+    "AfterToolCallHook",
     "ToolManager",
+    "Tool",
+    "ToolContext",
+    "ToolResult",
     "SkillManager",
     "register_tool",
     "TraceRecorder",
@@ -107,7 +151,9 @@ __all__ = [
     "load_mcp_tools",
     "register_mcp_tools",
     "ExternalResult",
+    "ExternalRunRequest",
     "ExternalRunner",
+    "LegacyExternalRunnerAdapter",
     "ClaudeCodeRunner",
     "CodexRunner",
     "claude_code_entity",

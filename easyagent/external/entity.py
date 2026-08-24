@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-import inspect
 import uuid
 from typing import Any, Callable
 
 from easyagent.core.types import Action, MessagesSlice, Perception, Speak
 from easyagent.events import CustomTraceEvent, EventBus
-from easyagent.external.base import ExternalEventHandler, ExternalResult, ExternalRunner
+from easyagent.external.base import (
+    ExternalEventHandler,
+    ExternalResult,
+    ExternalRunner,
+    ExternalRunRequest,
+    LegacyExternalRunnerAdapter,
+)
 from easyagent.tracing import DisplayHint
 
 
@@ -34,7 +39,11 @@ class ExternalAgentEntity:
         trace_level: str = "summary",
     ) -> None:
         self._id = id
-        self.runner = runner
+        self.runner = (
+            runner
+            if isinstance(runner, ExternalRunner)
+            else LegacyExternalRunnerAdapter(runner)
+        )
         self.provider = provider
         self.name = name or id
         self.input_mapper = input_mapper or default_input_mapper
@@ -100,19 +109,14 @@ class ExternalAgentEntity:
         metadata: dict[str, Any],
         event_handler: ExternalEventHandler,
     ) -> str | ExternalResult:
-        run = self.runner.run
-        try:
-            signature = inspect.signature(run)
-        except (TypeError, ValueError):
-            return await run(prompt, metadata=metadata, event_handler=event_handler)
-        kwargs: dict[str, Any] = {}
-        if "metadata" in signature.parameters:
-            kwargs["metadata"] = metadata
-        if "event_handler" in signature.parameters:
-            kwargs["event_handler"] = event_handler
-        if kwargs:
-            return await run(prompt, **kwargs)
-        return await run(prompt)  # type: ignore[call-arg]
+        return await self.runner.run_request(
+            ExternalRunRequest(
+                prompt=prompt,
+                session_id=self.provider_session_id,
+                metadata=metadata,
+            ),
+            event_handler=event_handler,
+        )
 
     def _coerce_result(self, raw_result: str | ExternalResult) -> ExternalResult:
         if isinstance(raw_result, ExternalResult):

@@ -1,21 +1,27 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+import logging
 from collections import defaultdict
 from typing import Any, Callable, TypeVar
 
 from easyagent.events.base import BaseEvent
 
 T = TypeVar("T", bound=BaseEvent)
+_log = logging.getLogger(__name__)
 
 
 class EventBus:
-    """Async event bus with persistent history.
+    """Passive async event bus with in-memory history.
 
     - publish(event)          push an event; notifies all matching subscribers
     - subscribe(type, fn)     register a sync or async handler for an event type
     - history(type=None)      return all recorded events, optionally filtered
     - stream()                async-iterate future events (for frontend / replay)
+
+    Subscribers are observers: their return values are ignored and their
+    failures are isolated. Execution control belongs in the HookManager.
     """
 
     def __init__(self) -> None:
@@ -29,10 +35,25 @@ class EventBus:
         # Notify all subscribers whose registered type appears in the MRO
         for klass in type(event).__mro__:
             for handler in self._subscribers.get(klass, []):
-                if asyncio.iscoroutinefunction(handler):
-                    await handler(event)
-                else:
-                    handler(event)
+                try:
+                    result = handler(event)
+                    if inspect.isawaitable(result):
+                        await result
+                except asyncio.CancelledError:
+                    current_task = asyncio.current_task()
+                    if current_task is not None and current_task.cancelling():
+                        raise
+                    _log.exception(
+                        "Event observer %r was cancelled for %s",
+                        handler,
+                        type(event).__name__,
+                    )
+                except Exception:
+                    _log.exception(
+                        "Event observer %r failed for %s",
+                        handler,
+                        type(event).__name__,
+                    )
 
         # Wake up any active stream consumers
         for q in self._stream_queues:

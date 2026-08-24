@@ -1,30 +1,59 @@
+import asyncio
 import importlib
 import json
 import pkgutil
+from inspect import Parameter, iscoroutinefunction, signature
 from pathlib import Path
 from typing import Any
 
 from easyagent.model.schema import ToolCall
-from easyagent.tool.base import Tool
+from easyagent.tool.base import Tool, ToolContext, ToolResult
 
 
 class ToolManager:
     """Registry of tools with lazy built-in discovery."""
 
     def __init__(self, *, discover_builtin: bool = True):
-        self._tools: dict[str, Tool] = {}
+        self._tools: dict[str, Any] = {}
+        self._invokers: dict[str, Tool] = {}
         self._discovered = not discover_builtin
 
-    def register(self, tool: Tool) -> None:
-        if not isinstance(tool, Tool):
-            raise TypeError(f"{tool} does not satisfy Tool protocol")
-        tool.init()
+    def register(self, tool: Any) -> None:
+        self._validate_tool(tool)
+        if tool.name in self._tools:
+            raise ValueError(f"Tool '{tool.name}' is already registered")
+        init = getattr(tool, "init", None)
+        if callable(init):
+            init()
         self._tools[tool.name] = tool
+        self._invokers[tool.name] = (
+            tool if _uses_context_interface(tool) else _LegacyToolAdapter(tool)
+        )
 
-    def get(self, name: str) -> Tool | None:
+    def get(self, name: str) -> Any | None:
         if name not in self._tools:
             self._ensure_discovered()
         return self._tools.get(name)
+
+    def registered_names(self) -> frozenset[str]:
+        """Return registered tool names without triggering discovery."""
+        return frozenset(self._tools)
+
+    async def execute(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        context: ToolContext,
+    ) -> ToolResult:
+        if name not in self._invokers:
+            self._ensure_discovered()
+        tool = self._invokers.get(name)
+        if tool is None:
+            return ToolResult(content=f"Tool '{name}' not found", is_error=True)
+        value = await tool.execute(arguments, context)
+        if isinstance(value, ToolResult):
+            return value
+        return ToolResult(content="" if value is None else str(value))
 
     def get_schema(self, names: list[str] | None = None) -> list[dict[str, Any]]:
         """Get tool schema for API requests"""
@@ -45,6 +74,7 @@ class ToolManager:
     def reset(self) -> None:
         """Reset for testing"""
         self._tools.clear()
+        self._invokers.clear()
         self._discovered = False
 
     def format_tool_calls(self, tool_calls: list[ToolCall]) -> list[dict[str, Any]]:
@@ -59,7 +89,7 @@ class ToolManager:
         ]
 
     @staticmethod
-    def _tool_to_schema(tool: Tool) -> dict[str, Any]:
+    def _tool_to_schema(tool: Any) -> dict[str, Any]:
         return {
             "type": tool.type,
             "function": {
@@ -68,6 +98,66 @@ class ToolManager:
                 "parameters": getattr(tool, "parameters", {"type": "object", "properties": {}}),
             },
         }
+
+    @staticmethod
+    def _validate_tool(tool: Any) -> None:
+        for attribute in ("name", "type", "description", "execute"):
+            if not hasattr(tool, attribute):
+                raise TypeError(f"{tool} is missing required tool attribute '{attribute}'")
+        if not isinstance(tool.name, str) or not tool.name:
+            raise TypeError("Tool name must be a non-empty string")
+
+
+class _LegacyToolAdapter(Tool):
+    """Adapt legacy ``execute(**kwargs)`` tools to the context-aware Interface."""
+
+    def __init__(self, tool: Any) -> None:
+        self._tool = tool
+        self.name = tool.name
+        self.type = tool.type
+        self.description = tool.description
+        self.parameters = getattr(
+            tool,
+            "parameters",
+            {"type": "object", "properties": {}},
+        )
+
+    async def execute(
+        self,
+        arguments: dict[str, Any],
+        context: ToolContext,
+    ) -> ToolResult:
+        call_kwargs = _bind_legacy_kwargs(
+            self._tool.execute,
+            arguments,
+            context.session,
+        )
+        if iscoroutinefunction(self._tool.execute):
+            value = await self._tool.execute(**call_kwargs)
+        else:
+            value = await asyncio.to_thread(self._tool.execute, **call_kwargs)
+        if isinstance(value, ToolResult):
+            return value
+        return ToolResult(content="" if value is None else str(value))
+
+
+def _bind_legacy_kwargs(
+    func: Any,
+    arguments: dict[str, Any],
+    session: Any,
+) -> dict[str, Any]:
+    params = signature(func).parameters
+    bound = {key.strip().rstrip(":").strip(): value for key, value in arguments.items()}
+    if "session" in params or any(
+        parameter.kind == Parameter.VAR_KEYWORD for parameter in params.values()
+    ):
+        bound["session"] = session
+    return bound
+
+
+def _uses_context_interface(tool: Any) -> bool:
+    """Return whether a tool explicitly opts into the context-aware contract."""
+    return getattr(tool, "context_aware", False) is True
 
 
 def register_tool(cls: type) -> type:

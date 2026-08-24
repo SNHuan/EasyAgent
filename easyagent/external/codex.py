@@ -4,7 +4,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from easyagent.external.base import ExternalEventHandler, ExternalResult
+from easyagent.external.base import ExternalEventHandler, ExternalResult, ExternalRunRequest
 from easyagent.external.entity import ExternalAgentEntity, InputMapper, OutputMapper
 
 CodexSandboxName = Literal["read_only", "workspace_write", "full_access"]
@@ -31,9 +31,24 @@ class CodexRunner:
 
     async def run(
         self,
-        prompt: str,
+        request: ExternalRunRequest | str,
         *,
         metadata: dict[str, Any] | None = None,
+        event_handler: ExternalEventHandler | None = None,
+    ) -> ExternalResult:
+        if isinstance(request, str):
+            request = ExternalRunRequest(
+                prompt=request,
+                metadata=dict(metadata or {}),
+            )
+        elif metadata is not None:
+            raise TypeError("metadata is only supported with a string prompt")
+        return await self.run_request(request, event_handler=event_handler)
+
+    async def run_request(
+        self,
+        request: ExternalRunRequest,
+        *,
         event_handler: ExternalEventHandler | None = None,
     ) -> ExternalResult:
         try:
@@ -54,15 +69,25 @@ class CodexRunner:
         approval_mode = _resolve_approval_mode(ApprovalMode, self.approval_mode)
 
         async with AsyncCodex() as codex:
-            thread = await codex.thread_start(
-                cwd=str(self.cwd),
-                model=self.model,
-                sandbox=sandbox,
-                approval_mode=approval_mode,
-                developer_instructions=self.developer_instructions,
-            )
+            if request.session_id:
+                thread = await codex.thread_resume(
+                    request.session_id,
+                    cwd=str(self.cwd),
+                    model=self.model,
+                    sandbox=sandbox,
+                    approval_mode=approval_mode,
+                    developer_instructions=self.developer_instructions,
+                )
+            else:
+                thread = await codex.thread_start(
+                    cwd=str(self.cwd),
+                    model=self.model,
+                    sandbox=sandbox,
+                    approval_mode=approval_mode,
+                    developer_instructions=self.developer_instructions,
+                )
             turn = await thread.turn(
-                prompt,
+                request.prompt,
                 cwd=str(self.cwd),
                 model=self.model,
                 sandbox=sandbox,
@@ -113,7 +138,7 @@ class CodexRunner:
                 "model": self.model,
                 "sandbox": self.sandbox,
                 "approval_mode": self.approval_mode,
-                **(metadata or {}),
+                **request.metadata,
             },
         )
 

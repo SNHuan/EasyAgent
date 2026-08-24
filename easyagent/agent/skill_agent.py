@@ -4,15 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from easyagent.agent.react_agent import ReactAgent
-from easyagent.agent.session import AgentSession
-from easyagent.prompt.react import build_skills_section
 from easyagent.skill import DEFAULT_SKILL_MANAGER, SkillManager
-from easyagent.tool.skill import (
-    ListSkillFilesTool,
-    LoadSkillTool,
-    ReadSkillFileTool,
-    RunSkillScriptTool,
-)
 
 
 class SkillAgent(ReactAgent):
@@ -40,21 +32,10 @@ class SkillAgent(ReactAgent):
         skill_manager: SkillManager | None = None,
         **kwargs: Any,
     ):
-        super().__init__(model, **kwargs)
-        self._skill_manager = skill_manager or DEFAULT_SKILL_MANAGER
-        self._skill_names = list(skills or [])
-        if skill_root is not None:
-            self._skill_manager.add_search_dir(Path(skill_root))
-        if self._skill_names:
-            self.add_tool(LoadSkillTool(self._skill_manager, self._skill_names))
-            self.add_tool(ListSkillFilesTool(self._skill_manager))
-            self.add_tool(ReadSkillFileTool(self._skill_manager))
-            self.add_tool(RunSkillScriptTool(self._skill_manager))
-
-    def build_system_prompt(self, session: AgentSession) -> str:
-        base = super().build_system_prompt(session)
-        summaries = self._skill_manager.list_summaries(self._skill_names)
-        section = build_skills_section(summaries)
-        if section:
-            return "\n\n".join([base, section])
-        return base
+        super().__init__(
+            model,
+            skills=skills,
+            skill_root=skill_root,
+            skill_manager=skill_manager or DEFAULT_SKILL_MANAGER,
+            **kwargs,
+        )

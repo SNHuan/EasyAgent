@@ -44,6 +44,12 @@ class BaseAgent(ABC):
     async def run_session(self, session: "AgentSession", user_input: Any) -> str:
         raise NotImplementedError
 
+    async def run_prepared_session(self, session: "AgentSession") -> str:
+        raise NotImplementedError
+
+    async def resume_session(self, session: "AgentSession") -> str:
+        raise NotImplementedError
+
     async def step(self, session: "AgentSession") -> "LoopStepResult":
         raise NotImplementedError
 

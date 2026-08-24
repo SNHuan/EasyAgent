@@ -79,15 +79,17 @@ models:
 EasyAgent 围绕三层展开：
 
 ```text
-单 agent：    Model + Memory + Context + Tool → Agent / ReactAgent / SkillAgent / SandboxAgent
+单 agent：    Model + Memory + Context + Tool → Agent / ReactAgent（+ skills / sandbox）
 多 agent：    Entity + World + Schedule → Runtime
 预设：       sequential / fanout / debate / chatroom / groupchat
 ```
 
 - **Model**：模型适配器和消息结构。
 - **Memory + Context**：保存历史，并决定每一轮发给模型的是哪一部分。
-- **Agent**：组合 model、memory、context、所需工具/技能/沙箱。内置四个 agent
-  类：`Agent`（单轮）→ `ReactAgent`（ReAct 循环）→ `SkillAgent` / `SandboxAgent`。
+- **Agent**：可复用定义，组合 model、memory/context 工厂以及可选的工具、技能和
+  沙箱；每次执行由 `AgentSession` 持有。内部 `ReactRunEngine` 为 `run()` 和
+  `stream()` 驱动同一套 ReAct 状态转换。`SkillAgent` 和 `SandboxAgent` 是同一
+  `ReactAgent` 实现上的便利包装。
 - **Entity**：把 Agent（或任意异步参与者）包装成多 agent 参与者。
   协议：`id` 属性 + `async act(Perception) -> Action | None`。
 - **World**：Entity 感知和作用的环境。
@@ -130,11 +132,11 @@ python examples/mcp/config_load.py           # 从 mcp_config.example.json 加�
 ## 工具
 
 ```python
-from easyagent import LiteLLMModel, ReactAgent, register_tool
+from easyagent import LiteLLMModel, ReactAgent, Tool, ToolContext, ToolResult
 
 
-@register_tool
-class GetWeather:
+class GetWeather(Tool):
+    context_aware = True
     name = "get_weather"
     type = "function"
     description = "获取城市天气。"
@@ -144,20 +146,61 @@ class GetWeather:
         "required": ["city"],
     }
 
-    def init(self) -> None: ...
-
-    def execute(self, city: str) -> str:
-        return f"{city}天气晴朗。"
+    async def execute(
+        self,
+        arguments: dict,
+        context: ToolContext,
+    ) -> ToolResult:
+        city = arguments["city"]
+        return ToolResult(content=f"{city}天气晴朗。")
 
 
 agent = ReactAgent(
     model=LiteLLMModel("gpt-4o-mini"),
-    tools=[GetWeather],
+    tools=[GetWeather()],
 )
 ```
 
 `tools=[...]` 直接接受类或实例。ReAct 循环会在模型返回工具调用时继续执行；
 当模型返回无工具调用的普通 assistant 文本时，将其视为最终答案。
+`context_aware = True` 用于明确选择新的 `execute(arguments, context)` 契约。原有
+`execute(city: str, **kwargs) -> str` 工具仍通过兼容 Adapter 工作。
+
+## Event 与 Hook
+
+Event 和 Hook 承担不同职责：
+
+- `EventBus` 是被动观测平面。订阅者返回值会被忽略；订阅者报错只记录日志，
+  不改变 agent 执行结果。
+- `HookManager` 是需要等待的控制平面。Hook 报错会向上传播，返回值可以阻断或
+  改写执行。
+
+工具 Hook 注册在可复用的 Agent 定义上，并按注册顺序执行：
+
+```python
+from easyagent import (
+    BeforeToolCallHook,
+    BeforeToolCallResult,
+    HookManager,
+    ReactAgent,
+)
+
+hooks = HookManager()
+hooks.on(
+    BeforeToolCallHook,
+    lambda hook: BeforeToolCallResult(
+        block=hook.tool_name == "delete_file",
+        reason="禁止执行破坏性工具。",
+    ),
+)
+
+agent = ReactAgent(model=model, tools=tools, hooks=hooks)
+```
+
+`BeforeToolCallHook` 可以替换参数或阻止调用；`AfterToolCallHook` 可以替换结构化
+`ToolResult`。如果上下文感知工具或其他进程内控制器需要停止当前执行，应调用
+`session.request_stop(...)`；只有观察者也需要收到通知时，才另外发布
+`StopEvent`。
 
 ## MCP 工具
 
@@ -217,13 +260,19 @@ Skill 兼容 [Agent Skills](https://agentskills.io/) 标准，按需加载。
 ```
 
 ```python
-from easyagent import LiteLLMModel, SkillAgent
+from easyagent import LiteLLMModel, ReactAgent
 
-agent = SkillAgent(
+agent = ReactAgent(
     model=LiteLLMModel("gpt-4o-mini"),
     skills=["my-skill"],
+    sandbox={"type": "local"},
 )
 ```
+
+沙箱配置字典和无参数工厂会为每个 Session 创建独立实例。也可以继续传入现有沙箱
+实例；并发 Session 会串行租用该共享实例，避免互相关闭。
+
+`SkillAgent` 和 `SandboxAgent` 继续作为便利包装保留。
 
 默认从 `.easyagent/skills` 发现技能。可以设置 `EA_SKILLS_DIR` 加载其他
 Agent Skills 兼容目录，例如 `.claude/skills` 或 `.codex/skills`。多个目录
@@ -287,6 +336,9 @@ easyagent dashboard --db path/to/traces.db --open
 dashboard 同时理解独立 agent session 和 runtime trace。只要应用把 runtime
 事件写入选定 trace store，runtime/world/entity/session 树就会自动展示出来。
 
+Trace store 只负责可观测性，不负责恢复一个可继续执行的 `AgentSession`。
+执行状态是下文单独说明的概念。
+
 自定义事件可以通过 `DisplayHint` 指定前端展示位置。比如下面这个事件会
 以 `PlannerStepEvent` 持久化，并在 Messages tab 中显示成 assistant 气泡：
 
@@ -314,6 +366,67 @@ await bus.publish(
 )
 ```
 
+## Checkpoint
+
+执行状态通过独立的 checkpoint store 持久化：
+
+```python
+from easyagent import ReactAgent, SQLiteCheckpointStore
+
+checkpoints = SQLiteCheckpointStore(".easyagent/checkpoints.db")
+agent = ReactAgent(
+    model=model,
+    checkpoint_store=checkpoints,
+    checkpoint_identity="release-writer/v1",
+)
+result = await agent.run("起草发布说明")
+
+checkpoint = await checkpoints.load(result.session.session_id)
+if checkpoint is not None:
+    report = agent.check_checkpoint(checkpoint)
+    if report.compatible:
+        restored_session = agent.restore_session(checkpoint)
+        print(restored_session.status, restored_session.iteration_count)
+        if restored_session.status.value == "running":
+            output = await restored_session.resume()
+    else:
+        print("\n".join(report.errors))
+```
+
+Agent 会在每个已完成的循环步骤后保存，并在 lifecycle cleanup 结束、状态变成
+`completed` 后再保存最终快照。配置 checkpoint store 后采用 fail-closed：
+状态不可 JSON 序列化或存储失败都会令本次运行失败，不会伪装成已经具备持久化保障。
+`AgentCheckpoint` 包含消息、循环状态、工具/技能选择、metadata 和结果记录；
+明确排除 sandbox、resources、EventBus 以及执行中的工具副作用。
+
+`SQLiteCheckpointStore` 为每个 Session 持久化最新快照，并把数据库 `save/load`
+操作移出 event loop。`MemoryCheckpointStore` 是测试和 Notebook 使用的进程内
+Adapter。遇到未知 checkpoint schema version 时，会抛出
+`UnsupportedCheckpointVersionError`，不会泄漏底层校验异常。
+`Agent.check_checkpoint()` 是只读预检：它会汇总 Agent 身份/名称不匹配、
+缺失的已注册工具以及缺失的已声明技能，不创建 Session、不触发能力发现，也不
+执行任何内容。程序分支应读取 `report.issues[*].code`，展示或日志可读取
+`report.errors`。默认的
+checkpoint 身份是 Agent 类的完整限定名；如果身份需要跨类名或模块重命名保持
+稳定，应显式传入 `checkpoint_identity`。`agent_type` 只用于诊断展示，不参与
+兼容性判断。
+
+`Agent.restore_session()` 会先检查兼容性，再把消息、循环记录、能力选择和
+metadata 重建为独立的 `AgentSession`。它不会进入 lifecycle，不调用模型、不执行
+工具、不加载技能，也不重建运行时资源。不兼容 checkpoint 会抛出
+`IncompatibleCheckpointError`；可恢复状态结构损坏会抛出
+`InvalidCheckpointStateError`。
+
+恢复状态和恢复执行仍是两个动作。显式调用 `resume()` 只会继续从 `running`
+checkpoint 恢复出的 Session。它保留 messages、iteration、loop state 和已完成的
+steps；如果保存的最后一步已经 terminal，只补齐 lifecycle，不重复执行。无论成功
+还是失败，resume 都是单次消费；重试必须重新加载最后一个安全 checkpoint。
+非法调用会抛出 `SessionNotResumableError`，其 reason 为 `not_restored`、
+`checkpoint_not_running` 或 `already_resumed`。
+
+首版 resume Interface 只提供非流式执行。`resume()` 会通过正常 start/end Hook
+重建和清理 lifecycle 资源，但 load 或 restore 不会隐式续跑。
+
 ## 公共 API
 
 根包暴露常用稳定入口：
@@ -322,11 +435,18 @@ await bus.publish(
 from easyagent import (
     # 单 agent
     Agent, ReactAgent, SkillAgent, SandboxAgent,
-    AgentSession, AgentRunResult,
+    AgentSession, AgentRunResult, SessionNotResumableError,
+    AgentCheckpoint, CheckpointCompatibilityIssue,
+    CheckpointCompatibilityReport, CheckpointStore,
+    IncompatibleCheckpointError, InvalidCheckpointStateError,
+    MemoryCheckpointStore, SQLiteCheckpointStore,
+    UnsupportedCheckpointVersionError,
     LiteLLMModel, Message,
     EventBus, MessageEvent,
-    ToolManager, SkillManager, register_tool,
+    HookManager, BeforeToolCallHook, BeforeToolCallResult, AfterToolCallHook,
+    Tool, ToolContext, ToolResult, ToolManager, SkillManager, register_tool,
     MCPToolset, load_mcp_tools, register_mcp_tools,
+    ExternalRunRequest, LegacyExternalRunnerAdapter,
     # 多 agent 协议
     Entity, World, Schedule, Runtime, RuntimeResult,
     # 感知与动作类型
@@ -346,13 +466,15 @@ from easyagent import (
 
 ```text
 easyagent/
-├── agent/      # Agent, ReactAgent, SkillAgent, SandboxAgent, AgentSession
+├── agent/      # Agent 定义、AgentSession、内部 ReactRunEngine
+├── checkpoint/ # 可序列化 AgentCheckpoint + 持久化边界
 ├── core/       # Entity, World, Schedule 协议 + Runtime 循环
 ├── entities/   # LLMEntity, TeamEntity, HumanEntity
 ├── worlds/     # ConversationWorld, PipelineWorld, SpatialWorld, StatefulWorld
 ├── presets.py  # sequential, fanout, debate, chatroom, groupchat
 ├── context/    # SlidingWindowContext, SummaryContext, MultiAgentFormatter
 ├── events/     # MessageEvent, EventBus, 遥测事件
+├── hooks/      # 等待执行的控制平面 Hook
 ├── memory/     # InMemoryMemory
 ├── model/      # LiteLLMModel + Message schema
 ├── prompt/     # System prompt 构造

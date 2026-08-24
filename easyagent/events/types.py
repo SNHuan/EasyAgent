@@ -27,18 +27,14 @@ class WaitEvent(BaseEvent):
 
 @dataclass
 class StopEvent(BaseEvent):
-    """Ask a specific session to terminate its in-flight loop early.
+    """Passive notification that a session stop was requested.
 
-    Anyone can publish this (the session's own tools, a supervisor agent,
-    external control code, …). Each session is auto-subscribed at spawn
-    time to a bus listener that translates a matching StopEvent into
-    ``session.loop_state["__early_exit__"] = data``. The next tool/loop
-    boundary in :class:`ReActLoop` then breaks out and returns ``data``
-    as the loop's final output.
+    Publishing an Event cannot change execution. Use
+    ``AgentSession.request_stop(...)`` for control, then publish this event
+    separately if observers also need a notification.
 
     ``session_id`` selects the target. ``data`` is whatever payload the
-    sender wants the loop to surface as its final output (typically a
-    handoff summary, but it can be anything string-coercible).
+    sender wants to expose to observers.
     """
 
     session_id: AgentId = ""
@@ -200,6 +196,8 @@ class ToolResultEvent(BaseEvent):
     agent_id: AgentId = ""
     tool_name: str = ""
     result: str = ""
+    is_error: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

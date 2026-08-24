@@ -83,7 +83,7 @@ models:
 EasyAgent is organised around three layers:
 
 ```text
-Single-agent:    Model + Memory + Context + Tool → Agent / ReactAgent / SkillAgent / SandboxAgent
+Single-agent:    Model + Memory + Context + Tool → Agent / ReactAgent (+ skills / sandbox)
 Multi-agent:     Entity + World + Schedule → Runtime
 Presets:         sequential / fanout / debate / chatroom / groupchat
 ```
@@ -91,9 +91,12 @@ Presets:         sequential / fanout / debate / chatroom / groupchat
 - **Model** — provider adapter and message schema.
 - **Memory + Context** — store conversation history and decide what reaches
   the model each turn.
-- **Agent** — composes a model, memory, context, and any tools/skills/sandbox.
-  Four built-in classes: `Agent` (single-turn) → `ReactAgent` (ReAct loop) →
-  `SkillAgent` / `SandboxAgent`.
+- **Agent** — reusable definition for a model, memory/context factories, and
+  optional tools, skills, and sandbox. `AgentSession` owns each run.
+  An internal `ReactRunEngine` drives the same ReAct state transition for
+  `run()` and `stream()`.
+  `SkillAgent` and `SandboxAgent` are convenience wrappers over the same
+  composable `ReactAgent` implementation.
 - **Entity** — wraps an Agent (or any async actor) for multi-agent participation.
   Protocol: `id` property + `async act(Perception) -> Action | None`.
 - **World** — the environment entities perceive and act upon.
@@ -138,11 +141,11 @@ python examples/mcp/config_load.py           # Load tools from mcp_config.exampl
 ## Tools
 
 ```python
-from easyagent import LiteLLMModel, ReactAgent, register_tool
+from easyagent import LiteLLMModel, ReactAgent, Tool, ToolContext, ToolResult
 
 
-@register_tool
-class GetWeather:
+class GetWeather(Tool):
+    context_aware = True
     name = "get_weather"
     type = "function"
     description = "Get weather for a city."
@@ -152,21 +155,65 @@ class GetWeather:
         "required": ["city"],
     }
 
-    def init(self) -> None: ...
-
-    def execute(self, city: str) -> str:
-        return f"Sunny in {city}."
+    async def execute(
+        self,
+        arguments: dict,
+        context: ToolContext,
+    ) -> ToolResult:
+        city = arguments["city"]
+        return ToolResult(content=f"Sunny in {city}.")
 
 
 agent = ReactAgent(
     model=LiteLLMModel("gpt-4o-mini"),
-    tools=[GetWeather],
+    tools=[GetWeather()],
 )
 ```
 
 Pass tool classes or instances directly via `tools=[...]`. The ReAct loop
 continues while the model returns tool calls; a plain assistant message with no
-tool calls is treated as the final answer.
+tool calls is treated as the final answer. `context_aware = True` explicitly
+selects the new `execute(arguments, context)` contract. Existing
+`execute(city: str, **kwargs) -> str` tools remain supported through a legacy
+Adapter.
+
+## Events and Hooks
+
+Events and hooks serve different purposes:
+
+- `EventBus` is the passive observation plane. Subscriber return values are
+  ignored, and subscriber failures are logged without changing agent execution.
+- `HookManager` is the awaited control plane. Hook failures propagate, and hook
+  results can block or transform execution.
+
+Tool hooks are registered on the reusable Agent definition and run in
+registration order:
+
+```python
+from easyagent import (
+    BeforeToolCallHook,
+    BeforeToolCallResult,
+    HookManager,
+    ReactAgent,
+)
+
+hooks = HookManager()
+hooks.on(
+    BeforeToolCallHook,
+    lambda hook: BeforeToolCallResult(
+        block=hook.tool_name == "delete_file",
+        reason="Destructive tools are disabled.",
+    ),
+)
+
+agent = ReactAgent(model=model, tools=tools, hooks=hooks)
+```
+
+`BeforeToolCallHook` can replace arguments or block a call.
+`AfterToolCallHook` can replace the structured `ToolResult`. To stop the active
+run from a context-aware tool or another in-process controller, call
+`session.request_stop(...)`; publish a `StopEvent` separately only when
+observers also need a notification.
 
 ## MCP Tools
 
@@ -230,13 +277,20 @@ must match the parent directory name.
 ```
 
 ```python
-from easyagent import LiteLLMModel, SkillAgent
+from easyagent import LiteLLMModel, ReactAgent
 
-agent = SkillAgent(
+agent = ReactAgent(
     model=LiteLLMModel("gpt-4o-mini"),
     skills=["my-skill"],
+    sandbox={"type": "local"},
 )
 ```
+
+Sandbox config dictionaries and zero-argument factories create one sandbox
+instance per session. Passing an existing sandbox instance remains supported;
+concurrent sessions then lease that shared instance serially.
+
+`SkillAgent` and `SandboxAgent` remain available as convenience wrappers.
 
 By default EasyAgent discovers skills from `.easyagent/skills`. Set
 `EA_SKILLS_DIR` to load skills from another Agent Skills-compatible directory
@@ -306,6 +360,9 @@ The dashboard understands both standalone agent sessions and runtime traces, so
 runtime/world/entity/session trees appear automatically when your application
 writes runtime events into the selected trace store.
 
+Trace stores are observability stores; they do not restore a live
+`AgentSession`. Execution state is a separate concern covered below.
+
 Custom events can opt into dashboard surfaces by attaching a `DisplayHint`.
 For example, this event is persisted as `PlannerStepEvent` and rendered in the
 Messages tab as an assistant bubble:
@@ -334,6 +391,74 @@ await bus.publish(
 )
 ```
 
+## Checkpoints
+
+Persist execution state through a separate checkpoint store:
+
+```python
+from easyagent import ReactAgent, SQLiteCheckpointStore
+
+checkpoints = SQLiteCheckpointStore(".easyagent/checkpoints.db")
+agent = ReactAgent(
+    model=model,
+    checkpoint_store=checkpoints,
+    checkpoint_identity="release-writer/v1",
+)
+result = await agent.run("Draft the release notes")
+
+checkpoint = await checkpoints.load(result.session.session_id)
+if checkpoint is not None:
+    report = agent.check_checkpoint(checkpoint)
+    if report.compatible:
+        restored_session = agent.restore_session(checkpoint)
+        print(restored_session.status, restored_session.iteration_count)
+        if restored_session.status.value == "running":
+            output = await restored_session.resume()
+    else:
+        print("\n".join(report.errors))
+```
+
+The agent saves after each completed loop step and once more after lifecycle
+cleanup reaches `completed`. Configuring a checkpoint store is fail-closed:
+non-JSON state or a store failure fails the run instead of silently claiming
+durability. `AgentCheckpoint` includes messages, loop state, tool/skill
+selection, metadata, and result bookkeeping; it deliberately excludes the
+sandbox, resources, EventBus, and in-flight tool side effects.
+
+`SQLiteCheckpointStore` persists the latest checkpoint for each session and
+moves database `save`/`load` operations off the event loop.
+`MemoryCheckpointStore` is the process-local Adapter for tests and notebooks.
+Unknown checkpoint schema versions raise
+`UnsupportedCheckpointVersionError` instead of leaking validation internals.
+`Agent.check_checkpoint()` is a read-only preflight that reports Agent
+identity/name mismatches, missing registered tools, and missing declared skills
+without creating a session, triggering capability discovery, or executing
+anything. Use
+`report.issues[*].code` for programmatic decisions and `report.errors` for
+display. The default checkpoint identity is the fully qualified Agent class
+name; set `checkpoint_identity` explicitly when identity must survive class or
+module renames. `agent_type` remains diagnostic metadata, not a compatibility
+key.
+
+`Agent.restore_session()` checks compatibility and rebuilds an independent
+`AgentSession` with its messages, loop bookkeeping, capability selection, and
+metadata. It does not enter the lifecycle, call the model, execute tools, load
+skills, or recreate runtime resources. Incompatible checkpoints raise
+`IncompatibleCheckpointError`; structurally invalid restorable state raises
+`InvalidCheckpointStateError`.
+
+Restoration and execution remain separate actions. Calling `resume()` explicitly
+continues only a Session restored from a `running` checkpoint. It preserves
+messages, iteration count, loop state, and completed steps; a terminal saved
+step only completes the lifecycle and is not executed twice. Resume is
+single-use even when execution fails, so retries must reload the last safe
+checkpoint. Invalid calls raise `SessionNotResumableError` with reason
+`not_restored`, `checkpoint_not_running`, or `already_resumed`.
+
+The initial resume Interface is non-streaming. `resume()` recreates
+lifecycle-owned resources through the normal start/end hooks, but there is no
+implicit resume during load or restore.
+
 ## Public API
 
 The root package exposes the common SDK surface:
@@ -342,11 +467,18 @@ The root package exposes the common SDK surface:
 from easyagent import (
     # single-agent
     Agent, ReactAgent, SkillAgent, SandboxAgent,
-    AgentSession, AgentRunResult,
+    AgentSession, AgentRunResult, SessionNotResumableError,
+    AgentCheckpoint, CheckpointCompatibilityIssue,
+    CheckpointCompatibilityReport, CheckpointStore,
+    IncompatibleCheckpointError, InvalidCheckpointStateError,
+    MemoryCheckpointStore, SQLiteCheckpointStore,
+    UnsupportedCheckpointVersionError,
     LiteLLMModel, Message,
     EventBus, MessageEvent,
-    ToolManager, SkillManager, register_tool,
+    HookManager, BeforeToolCallHook, BeforeToolCallResult, AfterToolCallHook,
+    Tool, ToolContext, ToolResult, ToolManager, SkillManager, register_tool,
     MCPToolset, load_mcp_tools, register_mcp_tools,
+    ExternalRunRequest, LegacyExternalRunnerAdapter,
     # multi-agent protocols
     Entity, World, Schedule, Runtime, RuntimeResult,
     # perception & action types
@@ -366,13 +498,15 @@ from easyagent import (
 
 ```text
 easyagent/
-├── agent/      # Agent, ReactAgent, SkillAgent, SandboxAgent, AgentSession
+├── agent/      # Agent definitions, AgentSession, internal ReactRunEngine
+├── checkpoint/ # Serializable AgentCheckpoint + persistence boundary
 ├── core/       # Entity, World, Schedule protocols + Runtime loop
 ├── entities/   # LLMEntity, TeamEntity, HumanEntity
 ├── worlds/     # ConversationWorld, PipelineWorld, SpatialWorld, StatefulWorld
 ├── presets.py  # sequential, fanout, debate, chatroom, groupchat
 ├── context/    # SlidingWindowContext, SummaryContext, MultiAgentFormatter
 ├── events/     # MessageEvent, EventBus, telemetry events
+├── hooks/      # Awaited control-plane hooks
 ├── memory/     # InMemoryMemory
 ├── model/      # LiteLLMModel + Message schema
 ├── prompt/     # System-prompt builders

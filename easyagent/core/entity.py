@@ -11,8 +11,9 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from easyagent.core.types import Action, Perception
+    from easyagent.events.bus import EventBus
 
-__all__ = ["Entity"]
+__all__ = ["Entity", "RuntimeBindable"]
 
 
 @runtime_checkable
@@ -21,3 +22,18 @@ class Entity(Protocol):
     def id(self) -> str: ...
 
     async def act(self, perception: Perception) -> Action | None: ...
+
+
+@runtime_checkable
+class RuntimeBindable(Protocol):
+    """Optional internal Interface for entities that consume run context."""
+
+    def bind_runtime_context(
+        self,
+        *,
+        run_id: str,
+        run_title: str,
+        world: dict[str, object],
+        entity: dict[str, object],
+        bus: EventBus | None,
+    ) -> None: ...

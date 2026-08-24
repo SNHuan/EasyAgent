@@ -5,6 +5,81 @@ All notable changes to EasyAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Tool`, `ToolContext`, and `ToolResult` as the context-aware tool Interface;
+  existing `execute(**kwargs)` tools continue to work through a compatibility
+  Adapter.
+- `ExternalRunRequest`, including an explicit provider session id for
+  continuing externally managed agent sessions.
+- `LegacyExternalRunnerAdapter` for the former `run(prompt, ...)` runner
+  contract; the primary `ExternalRunner` contract is now `run_request(...)`.
+- Explicit internal Protocols for runtime-bindable entities and tick-aware,
+  advancing, and traceable worlds.
+- `HookManager`, `BeforeToolCallHook`, and `AfterToolCallHook` as an awaited
+  control plane for blocking or transforming tool execution.
+- `AgentSession.request_stop()` for direct, graceful execution control.
+- Internal `ReactRunEngine` for one shared ReAct state transition across
+  streaming and non-streaming execution.
+- `AgentCheckpoint`, async `CheckpointStore`,
+  `MemoryCheckpointStore`, and `SQLiteCheckpointStore` for JSON-compatible
+  execution snapshots at safe agent step boundaries.
+- `UnsupportedCheckpointVersionError` as the stable failure mode for loading
+  checkpoint schema versions the SDK does not support.
+- `Agent.check_checkpoint()`, `CheckpointCompatibilityIssue`, and
+  `CheckpointCompatibilityReport` for read-only recovery preflight across a
+  stable, overridable Agent identity, tools, and skills.
+- `Agent.restore_session()` for rebuilding isolated Session state without
+  starting execution, plus stable errors for incompatible or invalid
+  checkpoints.
+- Single-use `AgentSession.resume()` for explicitly continuing a restored
+  running checkpoint without resetting prior loop state or repeating terminal
+  steps.
+
+### Changed
+
+- `AgentSession` now owns the complete run and stream lifecycle; `Agent.run()`
+  and `Agent.stream()` are convenience façades over the session.
+- `LLMEntity` delegates execution to `AgentSession.run()` instead of driving
+  the Agent step loop itself, using `run_prepared()` when perception has
+  already populated session memory.
+- Skills and sandboxes are composable `ReactAgent` options. `SkillAgent` and
+  `SandboxAgent` remain convenience wrappers over the same Implementation.
+- Tool invocation is centralized in `ToolManager`; synchronous legacy tools
+  execute outside the event loop, context-aware tools opt in explicitly, and
+  duplicate tool names now fail fast.
+- Checkpoint preflight reads only the Tool Manager registry and the Agent's
+  declared skill names, so it does not trigger capability discovery or mutate
+  registries.
+- `ExternalAgentEntity` forwards provider session ids explicitly. Claude Code
+  uses `resume`, while Codex uses `thread_resume`.
+- Runtime wiring now rejects mismatched entity map keys and Schedule results
+  containing unknown entity ids.
+- `EventBus` subscribers are passive observers: their return values are ignored
+  and their failures are logged without changing agent execution. `StopEvent`
+  is now explicitly an optional observation event rather than a control
+  mechanism.
+- `ReactAgent.run()` and `ReactAgent.stream()` now share response handling,
+  tool ordering, Hook execution, Event emission, memory updates, and Stop
+  boundaries instead of maintaining parallel implementations.
+- Agent-managed run and stream loops save checkpoints after completed steps
+  and after lifecycle cleanup reaches the completed state. Configured
+  checkpoint persistence is fail-closed.
+
+### Fixed
+
+- Sandbox lifecycle hooks now run when a `SandboxAgent` is wrapped by
+  `LLMEntity`.
+- Agent sessions reach a failed terminal state when setup, cleanup, or stream
+  consumption fails, and cleanup still runs after setup failures.
+- `LLMEntity` preserves perception message order when rebuilding memory.
+- Sandbox factories create session-scoped instances; shared instances are
+  serialized so concurrent sessions cannot stop each other's sandbox.
+- Closing a public agent stream now closes its session stream immediately;
+  duplicate entity ids in one Runtime tick are rejected.
+
 ## [0.6.7] - 2026-06-26
 
 EasyAgent 0.6.7 extends the local dashboard trace tree with custom grouping

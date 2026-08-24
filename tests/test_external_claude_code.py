@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from easyagent.external import ClaudeCodeRunner, ExternalAgentEntity, claude_code_entity
+from easyagent.external import (
+    ClaudeCodeRunner,
+    ExternalAgentEntity,
+    ExternalRunRequest,
+    claude_code_entity,
+)
 
 
 def test_claude_code_entity_wraps_configured_runner() -> None:
@@ -31,6 +36,8 @@ def test_claude_code_entity_wraps_configured_runner() -> None:
 
 @pytest.mark.asyncio
 async def test_claude_code_runner_streams_provider_events(monkeypatch) -> None:
+    observed_options: list[dict[str, object]] = []
+
     @dataclass
     class TextBlock:
         text: str
@@ -73,6 +80,7 @@ async def test_claude_code_runner_streams_provider_events(monkeypatch) -> None:
             self.kwargs = kwargs
 
     async def query(*, prompt, options):
+        observed_options.append(options.kwargs)
         yield AssistantMessage([TextBlock("Reading README."), ToolUseBlock("tool_1", "Read", {"file_path": "README.md"})])
         yield UserMessage([ToolResultBlock("tool_1", "file contents")])
         yield AssistantMessage([TextBlock("Final summary")])
@@ -97,7 +105,10 @@ async def test_claude_code_runner_streams_provider_events(monkeypatch) -> None:
         streamed_events.append(event)
 
     result = await runner.run(
-        "summarize",
+        ExternalRunRequest(
+            prompt="summarize",
+            session_id="existing-session",
+        ),
         event_handler=event_handler,
     )
 
@@ -105,6 +116,7 @@ async def test_claude_code_runner_streams_provider_events(monkeypatch) -> None:
     assert result.session_id == "provider_session"
     assert result.usage == {"input_tokens": 4, "output_tokens": 2}
     assert result.events == []
+    assert observed_options[0]["resume"] == "existing-session"
     assert [event["type"] for event in streamed_events] == [
         "message",
         "tool_call",
@@ -113,3 +125,19 @@ async def test_claude_code_runner_streams_provider_events(monkeypatch) -> None:
         "result",
     ]
     assert streamed_events[2]["content"] == "file contents"
+
+
+@pytest.mark.asyncio
+async def test_claude_code_runner_legacy_metadata_facade(monkeypatch) -> None:
+    observed: list[ExternalRunRequest] = []
+    runner = ClaudeCodeRunner(cwd=Path("/tmp"))
+
+    async def fake_run_request(request, *, event_handler=None):
+        observed.append(request)
+        return object()
+
+    monkeypatch.setattr(runner, "run_request", fake_run_request)
+
+    await runner.run("continue", metadata={"task": "refactor"})
+
+    assert observed[0].metadata == {"task": "refactor"}

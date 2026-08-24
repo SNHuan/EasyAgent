@@ -22,6 +22,7 @@ from easyagent.core.types import (
     SetState,
     StateSlice,
 )
+from easyagent.core.world import AdvancingWorld, TickAwareWorld
 
 if TYPE_CHECKING:
     from easyagent.core.world import World
@@ -228,11 +229,9 @@ class StatefulWorld:
         self.inner.seed(content, sender=sender)
 
     def set_tick(self, tick: int) -> None:
-        set_tick = getattr(self.inner, "set_tick", None)
-        if callable(set_tick):
-            set_tick(tick)
+        if isinstance(self.inner, TickAwareWorld):
+            self.inner.set_tick(tick)
 
     def advance(self, tick: int) -> None:
-        advance = getattr(self.inner, "advance", None)
-        if callable(advance):
-            advance(tick)
+        if isinstance(self.inner, AdvancingWorld):
+            self.inner.advance(tick)

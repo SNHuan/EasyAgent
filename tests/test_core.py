@@ -33,6 +33,9 @@ from easyagent.core.schedule import (
     UntilPredicate,
 )
 from easyagent.core.runtime import Runtime
+from easyagent.entities.llm import LLMEntity
+from easyagent.agent.agent import Agent
+from easyagent.model.schema import LLMResponse
 from easyagent.worlds.conversation import ConversationWorld
 from easyagent.worlds.pipeline import PipelineWorld
 from easyagent.worlds.spatial import Grid2D, SpatialWorld
@@ -89,6 +92,15 @@ class CounterEntity:
     async def act(self, perception: Perception) -> Action | None:
         self._count += 1
         return Speak(content=f"{self._id}:{self._count}")
+
+
+class RecordingLLM:
+    def __init__(self) -> None:
+        self.messages: list[list[dict[str, object]]] = []
+
+    async def call_with_history(self, messages, **kwargs):
+        self.messages.append(messages)
+        return LLMResponse(content="done")
 
 
 # ── Perception tests ───────────────────────────────────────────────────
@@ -180,6 +192,67 @@ class TestRuntimeResult:
 
     def test_str_empty(self) -> None:
         assert str(RuntimeResult()) == ""
+
+
+@pytest.mark.asyncio
+async def test_llm_entity_preserves_perception_message_order() -> None:
+    llm = RecordingLLM()
+    entity = LLMEntity("coder", Agent(model=llm))
+    perception = Perception(
+        entity_id="coder",
+        tick=1,
+        slices=(
+            MessagesSlice(
+                messages=(
+                    ChatMessage(sender="user", content="build it"),
+                    ChatMessage(sender="coder", content="working"),
+                )
+            ),
+        ),
+    )
+
+    await entity.act(perception)
+
+    conversation = [
+        (message["role"], message["content"])
+        for message in llm.messages[0]
+        if message["role"] != "system"
+    ]
+    assert [role for role, _ in conversation] == ["user", "assistant"]
+    assert "user: build it" in conversation[0][1]
+    assert conversation[1][1] == "working"
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_invalid_trace_summary() -> None:
+    class InvalidTraceWorld(ConversationWorld):
+        def trace_summary(self):
+            return None
+
+    runtime = Runtime(
+        world=InvalidTraceWorld(),
+        entities={"silent": SilentEntity("silent")},
+        schedule=TakeTurns(order=["silent"]),
+    )
+
+    with pytest.raises(TypeError, match="trace_summary"):
+        await runtime.run()
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_duplicate_entity_ids_in_one_tick() -> None:
+    class DuplicateSchedule:
+        def next(self, state):
+            return ["silent", "silent"] if state.tick == 0 else None
+
+    runtime = Runtime(
+        world=ConversationWorld(),
+        entities={"silent": SilentEntity("silent")},
+        schedule=DuplicateSchedule(),
+    )
+
+    with pytest.raises(ValueError, match="duplicate entity IDs"):
+        await runtime.run()
 
 
 # ── Schedule tests ─────────────────────────────────────────────────────
@@ -401,6 +474,27 @@ class TestStatefulWorld:
 
 
 class TestRuntimeIntegration:
+    def test_entity_mapping_keys_must_match_entity_ids(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match="entity mapping key 'alias' does not match entity.id 'actual'",
+        ):
+            Runtime(
+                world=ConversationWorld(),
+                entities={"alias": EchoEntity("actual")},
+                schedule=TakeTurns(order=["alias"]),
+            )
+
+    async def test_schedule_rejects_unknown_entity_ids(self) -> None:
+        runtime = Runtime(
+            world=ConversationWorld(),
+            entities={"known": EchoEntity("known")},
+            schedule=TakeTurns(order=["missing"]),
+        )
+
+        with pytest.raises(ValueError, match="unknown entity IDs: missing"):
+            await runtime.run("hello")
+
     async def test_sequential_echo(self) -> None:
         a = EchoEntity("a", prefix="A:")
         b = EchoEntity("b", prefix="B:")

@@ -4,7 +4,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from easyagent.external.base import ExternalEventHandler, ExternalResult
+from easyagent.external.base import ExternalEventHandler, ExternalResult, ExternalRunRequest
 from easyagent.external.entity import ExternalAgentEntity, InputMapper, OutputMapper
 
 
@@ -30,9 +30,24 @@ class ClaudeCodeRunner:
 
     async def run(
         self,
-        prompt: str,
+        request: ExternalRunRequest | str,
         *,
         metadata: dict[str, Any] | None = None,
+        event_handler: ExternalEventHandler | None = None,
+    ) -> ExternalResult:
+        if isinstance(request, str):
+            request = ExternalRunRequest(
+                prompt=request,
+                metadata=dict(metadata or {}),
+            )
+        elif metadata is not None:
+            raise TypeError("metadata is only supported with a string prompt")
+        return await self.run_request(request, event_handler=event_handler)
+
+    async def run_request(
+        self,
+        request: ExternalRunRequest,
+        *,
         event_handler: ExternalEventHandler | None = None,
     ) -> ExternalResult:
         try:
@@ -54,9 +69,10 @@ class ClaudeCodeRunner:
             permission_mode=self.permission_mode,
             system_prompt=self.system_prompt,
             model=self.model,
+            resume=request.session_id,
         )
 
-        async for message in query(prompt=prompt, options=options):
+        async for message in query(prompt=request.prompt, options=options):
             message_events = _message_to_events(message)
             if event_handler is None:
                 events.extend(message_events)
@@ -90,7 +106,7 @@ class ClaudeCodeRunner:
                 "allowed_tools": self.allowed_tools,
                 "max_turns": self.max_turns,
                 "model": self.model,
-                **(metadata or {}),
+                **request.metadata,
             },
         )
 

@@ -29,6 +29,9 @@ if TYPE_CHECKING:
     from easyagent.core.world import World
     from easyagent.events.bus import EventBus
 
+from easyagent.core.entity import RuntimeBindable
+from easyagent.core.world import AdvancingWorld, TickAwareWorld, TraceableWorld
+
 __all__ = ["Runtime"]
 
 
@@ -46,6 +49,12 @@ class Runtime:
         title: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
+        for entity_id, entity in entities.items():
+            if entity_id != entity.id:
+                raise ValueError(
+                    f"entity mapping key '{entity_id}' does not match "
+                    f"entity.id '{entity.id}'"
+                )
         self.world = world
         self.entities = entities
         self.schedule = schedule
@@ -166,7 +175,23 @@ class Runtime:
         ``active`` order, keeping the action log deterministic regardless of
         which ``act`` coroutine finishes first.
         """
-        order = [entity_id for entity_id in active if entity_id in self.entities]
+        unknown = [entity_id for entity_id in active if entity_id not in self.entities]
+        if unknown:
+            raise ValueError(
+                f"Schedule returned unknown entity IDs: {', '.join(unknown)}"
+            )
+        seen: set[str] = set()
+        duplicates: list[str] = []
+        for entity_id in active:
+            if entity_id in seen and entity_id not in duplicates:
+                duplicates.append(entity_id)
+            seen.add(entity_id)
+        if duplicates:
+            raise ValueError(
+                "Schedule returned duplicate entity IDs in one tick: "
+                f"{', '.join(duplicates)}"
+            )
+        order = list(active)
         if not order:
             return
 
@@ -226,15 +251,13 @@ class Runtime:
 
     def _sync_world_clock(self, tick: int) -> None:
         """Push the runtime tick down to the world (if it tracks one)."""
-        set_tick = getattr(self.world, "set_tick", None)
-        if callable(set_tick):
-            set_tick(tick)
+        if isinstance(self.world, TickAwareWorld):
+            self.world.set_tick(tick)
 
     def _evolve_world(self, tick: int) -> None:
         """Let the world apply its own per-tick dynamics, if it defines any."""
-        advance = getattr(self.world, "advance", None)
-        if callable(advance):
-            advance(tick)
+        if isinstance(self.world, AdvancingWorld):
+            self.world.advance(tick)
 
     async def _publish(self, entity_id: str, action: Action | None, *, run_id: str) -> None:
         if self.bus is None or not isinstance(action, Speak):
@@ -257,10 +280,9 @@ class Runtime:
         run_title: str,
         world: dict[str, object],
     ) -> None:
-        binder = getattr(entity, "bind_runtime_context", None)
-        if not callable(binder):
+        if not isinstance(entity, RuntimeBindable):
             return
-        binder(
+        entity.bind_runtime_context(
             run_id=run_id,
             run_title=run_title,
             world=world,
@@ -269,11 +291,11 @@ class Runtime:
         )
 
     def _world_summary(self) -> dict[str, object]:
-        trace_summary = getattr(self.world, "trace_summary", None)
-        if callable(trace_summary):
-            value = trace_summary()
-            if isinstance(value, dict):
-                return value
+        if isinstance(self.world, TraceableWorld):
+            summary = self.world.trace_summary()
+            if not isinstance(summary, dict):
+                raise TypeError("World.trace_summary() must return dict[str, object]")
+            return summary
         return {
             "world_id": getattr(self.world, "id", self.world.__class__.__name__),
             "label": getattr(self.world, "name", self.world.__class__.__name__),

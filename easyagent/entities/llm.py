@@ -56,8 +56,10 @@ class LLMEntity:
         assert session.memory is not None
         session.memory.clear()
 
-        # 2. Rebuild conversation from perception
-        last_content = ""
+        # 2. Rebuild the complete conversation in its original order.
+        if all(message.sender == self._id for message in msg_slice.messages):
+            return None
+
         for chat_msg in msg_slice.messages:
             if chat_msg.sender == self._id:
                 session.memory.add(
@@ -67,55 +69,11 @@ class LLMEntity:
                 session.memory.add(
                     Message.user(chat_msg.content, name=chat_msg.sender)
                 )
-                last_content = chat_msg.content
 
-        if not last_content:
-            return None
-
-        # 3. Drive the agent's step loop
-        session.iteration_count = 0
-        session.loop_steps.clear()
-        session.loop_state.clear()
-
-        from easyagent.agent.session import LoopStepResult
-        from easyagent.agent.agent import _serialize_session_messages
-        from easyagent.events import AgentFailedEvent, AgentFinishedEvent, AgentStartedEvent
-
-        if session.event_bus is not None and not session.loop_state.get("__trace_started__"):
-            await session.event_bus.publish(
-                AgentStartedEvent(agent_id=session.session_id, metadata=dict(session.metadata))
-            )
-            session.loop_state["__trace_started__"] = True
-
-        try:
-            result: LoopStepResult = await self._agent.step(session)
-            session.loop_steps.append(result)
-            while not result.done:
-                result = await self._agent.step(session)
-                session.loop_steps.append(result)
-        except Exception as exc:
-            if session.event_bus is not None:
-                await session.event_bus.publish(
-                    AgentFailedEvent(
-                        agent_id=session.session_id,
-                        error=str(exc),
-                        messages=_serialize_session_messages(session.get_all_messages()),
-                    )
-                )
-            raise
-
-        output = result.output or session.final_output or ""
+        # 3. Drive the complete lifecycle without appending a duplicate input.
+        output = await session.run_prepared()
         if not output.strip():
             return None
-
-        if session.event_bus is not None:
-            await session.event_bus.publish(
-                AgentFinishedEvent(
-                    agent_id=session.session_id,
-                    output=output,
-                    messages=_serialize_session_messages(session.get_all_messages()),
-                )
-            )
 
         return Speak(content=output)
 

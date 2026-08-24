@@ -4,7 +4,7 @@ import pytest
 
 from easyagent import ChatMessage, ConversationWorld, EventBus, MemoryStore, Runtime, TakeTurns, TraceRecorder
 from easyagent.core.types import Action, MessagesSlice, Perception, SetState, Speak
-from easyagent.external import ExternalAgentEntity, ExternalResult
+from easyagent.external import ExternalAgentEntity, ExternalResult, ExternalRunRequest
 
 
 class RecordingRunner:
@@ -42,6 +42,33 @@ class StreamingRunner:
         )
 
 
+class StatefulRunner:
+    def __init__(self) -> None:
+        self.requests: list[ExternalRunRequest] = []
+
+    async def run_request(
+        self,
+        call,
+        *,
+        event_handler=None,
+    ) -> ExternalResult:
+        self.requests.append(call)
+        return ExternalResult(
+            content="done",
+            provider="fake",
+            session_id=call.session_id or "provider-session",
+        )
+
+
+class RequestNamedLegacyRunner:
+    def __init__(self) -> None:
+        self.values: list[str] = []
+
+    async def run(self, request: str) -> str:
+        self.values.append(request)
+        return "done"
+
+
 @pytest.mark.asyncio
 async def test_external_agent_entity_renders_visible_messages_and_speaks_result() -> None:
     runner = RecordingRunner("implemented")
@@ -65,6 +92,48 @@ async def test_external_agent_entity_renders_visible_messages_and_speaks_result(
     assert runner.prompts == ["[user] build it\n[planner] use small steps"]
     assert runner.metadata[0]["entity_id"] == "coder"
     assert runner.metadata[0]["provider"] == "fake"
+
+
+@pytest.mark.asyncio
+async def test_external_agent_entity_resumes_the_provider_session() -> None:
+    runner = StatefulRunner()
+    entity = ExternalAgentEntity("coder", runner=runner, provider="fake")
+    perception = Perception(
+        entity_id="coder",
+        tick=0,
+        slices=(
+            MessagesSlice(
+                messages=(ChatMessage(sender="user", content="first"),)
+            ),
+        ),
+    )
+
+    await entity.act(perception)
+    await entity.act(perception)
+
+    assert [request.session_id for request in runner.requests] == [
+        None,
+        "provider-session",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_external_agent_entity_does_not_guess_protocol_from_parameter_name() -> None:
+    runner = RequestNamedLegacyRunner()
+    entity = ExternalAgentEntity("coder", runner=runner, provider="fake")
+    perception = Perception(
+        entity_id="coder",
+        tick=0,
+        slices=(
+            MessagesSlice(
+                messages=(ChatMessage(sender="user", content="build it"),)
+            ),
+        ),
+    )
+
+    await entity.act(perception)
+
+    assert runner.values == ["[user] build it"]
 
 
 @pytest.mark.asyncio
